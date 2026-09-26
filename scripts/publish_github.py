@@ -86,6 +86,11 @@ def collect_files() -> list[str]:
         rel = p.relative_to(ROOT).as_posix()
         if rel in SKIP_FILES or rel.startswith(".git/") or rel.startswith("scripts/__pycache__"):
             continue
+        # 隐私护栏：任何简历/预览类文件（含个人照片）一律不入库
+        low = rel.lower()
+        if "resume" in low or "preview" in low or "简历" in rel:
+            print(f"  skip(private): {rel}")
+            continue
         if any(part in SKIP_DIRS for part in rel.split("/")[:-1]):
             continue
         if p.suffix in SKIP_SUFFIX and not rel.endswith((".md", ".sql", ".txt")):
