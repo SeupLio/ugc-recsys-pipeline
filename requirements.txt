@@ -1,0 +1,13 @@
+# 复用 torch 2.5.1+cu121 环境（本仓库所有实验数据均在该版本下产出）
+# pip install -r requirements.txt
+torch>=2.5.1
+numpy>=1.26
+pandas>=2.2
+scikit-learn>=1.4
+scipy>=1.11
+matplotlib>=3.8
+duckdb>=1.0
+faiss-cpu>=1.8
+transformers>=4.40
+PyYAML>=6.0
+pytest>=8.0

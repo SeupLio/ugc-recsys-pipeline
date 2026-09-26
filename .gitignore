@@ -1,0 +1,21 @@
+# 原始数据与大模型权重不入库（见 README 的快速开始）
+data/raw/
+data/processed/
+models/
+checkpoints/
+logs/
+assets/__pycache__/
+
+# 中间产物体积过大
+results/*.npy
+results/_pipeline_run.log
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.idea/
+.vscode/
+.DS_Store
+*.egg-info/
+.venv/
+venv/
