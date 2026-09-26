@@ -27,6 +27,10 @@ STEPS = [
     ("全链路漏斗评测", ["scripts/06_eval_funnel.py"]),
     ("冷启动评测", ["scripts/07_eval_coldstart.py"]),
     ("用户增长评测", ["scripts/08_eval_growth.py"]),
+    ("内容质量+意图画像", ["scripts/11_content_quality.py"]),
+    ("难负例挖掘", ["scripts/12_hard_negative.py", "--epochs", "3"]),
+    ("意图召回+质量重排", ["scripts/13_intent_rerank.py"]),
+    ("在线模拟A/B", ["scripts/14_online_sim.py", "--n_requests", "20000"]),
     ("单元测试", ["-m", "pytest", "tests", "-q"]),
 ]
 

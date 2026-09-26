@@ -1,0 +1,61 @@
+{
+  "epsilon": 0.1,
+  "cold_quota": 3,
+  "alpha_quality": 0.3,
+  "n_requests_per_arm": 30000,
+  "arms": {
+    "control(无冷启扶持/无质量降权)": {
+      "requests": 30000,
+      "users": 3020,
+      "ctr": 0.5472953333333334,
+      "ctr_ci": [
+        0.5393664235064745,
+        0.5552092537409072
+      ],
+      "cvr": 0.4317023228165626,
+      "cvr_ci": [
+        0.4279703387435613,
+        0.43511500178295515
+      ],
+      "cold_exposure_ratio": 0.0,
+      "avg_exposure": 50.0,
+      "is_treatment": false
+    },
+    "treatment(冷启额度3+质量降权)": {
+      "requests": 30000,
+      "users": 3020,
+      "ctr": 0.5467113333333333,
+      "ctr_ci": [
+        0.5381710843721722,
+        0.5541847989887794
+      ],
+      "cvr": 0.47012744080666524,
+      "cvr_ci": [
+        0.4673964404345952,
+        0.47272688938157525
+      ],
+      "cold_exposure_ratio": 0.011224,
+      "avg_exposure": 50.0,
+      "is_treatment": true
+    }
+  },
+  "srm_check": {
+    "n_control": 3020,
+    "n_treatment": 3020,
+    "chi2": 0.0,
+    "p_value": 1.0,
+    "pass": true
+  },
+  "ab_test": {
+    "ctr_diff_cuped": -0.0021067658297205805,
+    "ci95": [
+      -0.011495943321722627,
+      0.0072824116622814666
+    ],
+    "p_value": 0.6601053659965009,
+    "significant": false,
+    "variance_reduction_by_cuped": 0.2620453565200379,
+    "mde_relative": 0.0656,
+    "users_per_arm": 3020
+  }
+}

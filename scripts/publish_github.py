@@ -29,7 +29,8 @@ API = "https://api.github.com"
 
 SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", "data", "models",
              "checkpoints", "logs", ".workbuddy", "assets/__pycache__"}
-SKIP_FILES = {"results/_pipeline_run.log", "scripts/rewrite_resume.py"}
+SKIP_FILES = {"results/_pipeline_run.log", "scripts/rewrite_resume.py",
+              "scripts/compress_resume.py", "results/resume_preview.png"}
 SKIP_SUFFIX = {".pyc", ".npy", ".pt", ".bin", ".safetensors", ".zip", ".dat"}
 MAX_BYTES = 1_000_000  # 单个文件上限，避免把大权重/数据误推上去
 
@@ -47,7 +48,12 @@ def _send(method: str, path: str, token: str, body):
 
 
 def api(method: str, path: str, token: str, data=None, accept=404, retries=5):
-    """调用 GitHub API：仅对 RemoteDisconnected / 5xx / 429 做指数退避重试。"""
+    """调用 GitHub API：对 RemoteDisconnected / 5xx / 429 / 偶发 400 做指数退避重试。
+
+    注意：连续快速上传大 base64 payload 时，GitHub 前置代理会偶发返回
+    400 "malformed request"（同一请求单独重发即成功）。因此 400 也纳入重试，
+    并在 upload() 里对 blob 上传加节流间隔。
+    """
     body = json.dumps(data).encode("utf-8") if data is not None else None
     last: Exception | None = None
     for attempt in range(retries):
@@ -60,9 +66,9 @@ def api(method: str, path: str, token: str, data=None, accept=404, retries=5):
                 payload = json.loads(e.read().decode("utf-8") or "{}")
             except Exception:
                 payload = {"message": e.reason}
-            if e.code >= 500 or e.code == 429:
+            if e.code >= 500 or e.code == 429 or e.code == 400:
                 last = RuntimeError(f"{e.code} {payload}")
-                time.sleep(2 ** attempt)
+                time.sleep(1.5 * (2 ** attempt))
                 continue
             return e.code, payload
         except Exception as e:  # 连接被重置 / 超时
@@ -138,6 +144,7 @@ def upload(token: str, owner: str, repo: str, files: list[str], message: str) ->
             raise RuntimeError(f"blob 失败 {f}: {st} {body}")
         blobs[f] = body["sha"]
         print(f"  blob {f}")
+        time.sleep(0.35)  # 节流：避免连续大 payload 触发代理偶发 400
 
     tree = [{"path": f, "mode": "100644", "type": "blob", "sha": blobs[f]} for f in files]
     st, body = api("POST", f"/repos/{owner}/{repo}/git/trees", token, {"tree": tree})

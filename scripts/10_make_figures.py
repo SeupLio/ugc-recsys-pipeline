@@ -187,8 +187,65 @@ def fig_ann() -> None:
     plt.close(fig)
 
 
+def fig_hard_negative() -> None:
+    """难负例：两个评测口径必须一起看，否则会得出相反结论。"""
+    d = _load("hard_negative.json")
+    if not d:
+        return
+    res = d["results"]
+    labels = [r["tag"] for r in res]
+    easy = [r["auc_easy"] for r in res]
+    hard = [r["auc_hard"] for r in res]
+    x = np.arange(len(res))
+    w = 0.35
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(x - w / 2, easy, w, label="easy-neg eval (popularity)", color="#999999")
+    ax.bar(x + w / 2, hard, w, label="hard-neg eval (recall top-K)", color="#C44E52")
+    for i, (e, h) in enumerate(zip(easy, hard)):
+        ax.text(i - w / 2, e + 0.01, f"{e:.3f}", ha="center", fontsize=8)
+        ax.text(i + w / 2, h + 0.01, f"{h:.3f}", ha="center", fontsize=8)
+    ax.axhline(0.5, ls=":", color="black", lw=0.8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=9)
+    ax.set_ylim(0.45, 0.9)
+    ax.set_ylabel("AUC")
+    ax.set_title("Hard-negative mining: baseline is near-random (0.52) on realistic negatives")
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(ASSETS / "hard_negative.png")
+    plt.close(fig)
+
+
+def fig_quality_tradeoff() -> None:
+    """质量降权的精度↔覆盖权衡：α 越大精度略升但覆盖率下降。"""
+    d = _load("intent_quality_stage.json")
+    if not d:
+        return
+    rows = d["quality_rerank"]
+    alphas = [r["质量权重α"] for r in rows]
+    rec = [r["Recall@10"] for r in rows]
+    cov = [r["覆盖率↑"] for r in rows]
+    q = [r["Top10平均质量分"] for r in rows]
+    fig, ax1 = plt.subplots(figsize=(7.5, 4))
+    ax1.plot(alphas, rec, "o-", color="#4C72B0", label="Recall@10")
+    ax1.plot(alphas, q, "s-", color="#55A868", label="avg quality of Top10")
+    ax1.set_xlabel("quality penalty weight α")
+    ax1.set_ylabel("Recall@10 / quality")
+    ax2 = ax1.twinx()
+    ax2.plot(alphas, cov, "^--", color="#C44E52", label="catalog coverage")
+    ax2.set_ylabel("coverage", color="#C44E52")
+    ax1.set_title("Quality-aware rerank: precision vs catalog coverage")
+    h1, l1 = ax1.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax1.legend(h1 + h2, l1 + l2, fontsize=8, loc="center right")
+    fig.tight_layout()
+    fig.savefig(ASSETS / "quality_rerank.png")
+    plt.close(fig)
+
+
 def main() -> None:
-    for fn in [fig_recall, fig_rank, fig_funnel, fig_coldstart, fig_growth, fig_ann]:
+    for fn in [fig_recall, fig_rank, fig_funnel, fig_coldstart, fig_growth, fig_ann,
+               fig_hard_negative, fig_quality_tradeoff]:
         try:
             fn()
         except Exception as exc:  # noqa: BLE001
