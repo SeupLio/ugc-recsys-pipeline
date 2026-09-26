@@ -1,30 +1,25 @@
-# UGC 内容推荐全链路系统（召回 → 排序 → 重排 → 增长）
+# UGC-RecSys-Pipeline
 
-> 面向**内容社区 / 游戏社区**推荐场景，用 MovieLens-1M 作为公开基准数据集，
-> 从零实现一套可复现、可评测、有护栏的工业级推荐流水线：
-> **多路召回 → 融合 → 精排（CTR/CVR 多目标）→ 多样性重排 → 用户增长（Lookalike / pLTV）→ 新内容冷启动**。
->
-> 全部实验数据均在本仓库代码 + 固定随机种子下真实跑出，指标不做修饰，缺陷也写在文档里。
+**面向内容社区 / 游戏社区场景的推荐系统全链路实现：召回 → 精排 → 重排 → 冷启动 → 用户增长。**
+
+以 MovieLens-1M（100 万条真实行为）为公开基准，从零实现一套可复现、可评测、带数据护栏的工业级推荐流水线。仓库里的每一个指标都由本仓库代码 + 固定随机种子真实跑出，不含手工修饰；踩过的坑（两类数据泄漏）也如实记录并写成了回归测试。
 
 ---
 
-## 1. 为什么做这个项目
+## 核心特性
 
-推荐算法岗的 JD 反复出现同一批关键词：**双塔、Embedding、召回排序、冷启动、CTR/CVR 预估、多任务、用户价值预估、相似人群扩展、LLM/多模态内容理解**。
-这些词散落在论文里容易讲，难的是把它们串成一条**会互相影响的链路**——召回漏了精排再强也没用，指标涨了但破坏了内容生态也不行。
-
-所以这个项目的目标不是"跑通一个模型"，而是回答四个工程问题：
-
-| 问题 | 本仓库的答案 |
-| --- | --- |
-| 召回该开几路，各自贡献多少？ | [§4.1 召回层实验](#41-召回层多路召回对比) — 热度 0.112 / ItemCF 0.188 / 双塔 0.207 / 三路融合 **0.257** |
-| ANN 检索什么时候值得上？ | [§4.2 ANN 权衡](#42-ann-检索的trade-off) — 4k 物品时 Flat 最快；20 万时 IVF 比 Flat **快 5.7 倍且召回无损** |
-| 精排要不要做兴趣建模 / 多目标？ | [§4.3 精排](#43-精排deepfm--din--esmm多目标) — DeepFM 0.798 → DIN **0.819**；ESMM 给出 CTCVR-AUC **0.847** |
-| 重排值不值得牺牲一点精度？ | [§4.4 漏斗](#44-端到端漏斗) — 类目打散让 ILD 从 0.605 → **0.814**，同时 NDCG@10 反而 +9% |
+- **多路召回**：ItemCF（IUF 加权 + Top100 近邻）、双塔向量（batch 内负样本 softmax + 流行度 logQ 修正）、时间衰减热榜，Reciprocal Rank Fusion 融合
+- **向量检索**：Faiss Flat / IVF / HNSW 统一封装，附召回保持率 vs 吞吐的实测权衡，以及库规模从 4k → 20 万的规模效应实验
+- **精排与多目标**：DeepFM、DIN（target attention）、ESMM（CTR + CVR，pCTCVR = pCTR × pCVR）三种结构**同输入对照**，差距可干净归因
+- **多样性重排**：MMR 连续旋钮 + 类目硬打散，同时报告精度（NDCG）与生态指标（ILD / 覆盖率 / 新颖度）
+- **新内容冷启动**：内容语义通道 + 标签倒排通道 + 「扶持额度」旋钮，量化每多给一个坑位能买回多少召回
+- **用户增长**：SVD 行为向量 KNN Lookalike 人群扩展 + pLTV 价值模型两步法，按时间窗口切分避免标签退化
+- **SQL 特征工程**：画像口径全部写在可读的 DuckDB SQL（CTE + 窗口函数 + 时间衰减）里，另有等价 pandas 兜底实现
+- **42 个 pytest 用例**：指标与 sklearn 对拍、训练/测试隔离校验、冷启动物品隔离校验、attention masking 行为校验
 
 ---
 
-## 2. 系统架构
+## 系统架构
 
 ```
                         ┌──────────── 离线 ────────────┐
@@ -35,12 +30,12 @@
                                      │
  ┌─────────────────────── 在线请求（scripts/09_demo_serve.py）────────────────────┐
  │  用户请求                                                                       │
- │    ├─ 召回 ─┬─ ItemCF（IUF + Top100 近邻）                    ~93ms/全量         │
- │    │        ├─ 双塔向量（Faiss IVF）                          ~9ms/6038 用户     │
- │    │        └─ 时间衰减热度榜（兜底 / 新用户）                 ~0.8ms            │
- │    ├─ 融合 ─── Reciprocal Rank Fusion（抗数据漂移）            → Top80 候选      │
- │    ├─ 精排 ─── DIN target attention / ESMM(CTR&CVR)           0.12ms/用户       │
- │    └─ 重排 ─── MMR 多样性 + 类目打散(≤2/类)                    → Top10           │
+ │    ├─ 召回 ─┬─ ItemCF（IUF + Top100 近邻）                                       │
+ │    │        ├─ 双塔向量（Faiss IVF）                                             │
+ │    │        └─ 时间衰减热度榜（兜底 / 新用户）                                    │
+ │    ├─ 融合 ─── Reciprocal Rank Fusion（只看 rank，免疫量纲漂移）    → Top80 候选   │
+ │    ├─ 精排 ─── DIN target attention / ESMM(CTR&CVR)               0.12ms/用户    │
+ │    └─ 重排 ─── MMR 多样性 + 类目打散(≤2/类)                        → Top10        │
  └────────────────────────────────────────────────────────────────────────────────┘
                                      │
                     08 增长：Lookalike 人群包 + pLTV 价值分层
@@ -49,35 +44,74 @@
 
 ---
 
-## 3. 快速开始
+## 方法
 
-```bash
-# 环境：Python 3.12 + torch 2.5.1(cu121) 下验证通过
-pip install -r requirements.txt
+### 1. 场景建模
 
-# 数据放到 data/raw（ratings.dat / movies.dat / users.dat，MovieLens-1M 标准格式）
-python scripts/01_prepare_data.py          # 约 30s：SQL 画像 + 留一法切分 + 负采样
-python scripts/02_build_content.py         # 约 60s：bge-small-en-v1.5 内容向量 + 标签生成
-python scripts/03_train_two_tower.py       # 约 4min：双塔召回
-python scripts/04_eval_recall.py           # 召回层评测
-python scripts/05_train_rank.py --model all # 约 10min：DeepFM / DIN / ESMM
-python scripts/06_eval_funnel.py           # 全链路漏斗 + 重排
-python scripts/07_eval_coldstart.py        # 冷启动
-python scripts/08_eval_growth.py           # 用户增长
-python scripts/09_demo_serve.py --user 7   # 单次请求全链路演示
-pip install pytest && python -m pytest tests -q   # 42 passed
-```
+MovieLens 的显式评分（1–5）先映射成业务漏斗，才能同时支撑召回与多目标建模：
 
-一键版：`python scripts/run_all.py`
+| 漏斗层级 | 定义 | 数据构造 |
+| --- | --- | --- |
+| 曝光 | 候选物料库 | 全部 3,883 个 item |
+| 点击 | rating ≥ 4 | 正样本（隐式反馈标准做法） |
+| 转化 | rating = 5 | 深度互动（完播/点赞/收藏）的代理指标 |
+| 负样本 | 用户未交互过的 item | popularity^0.75 采样，比例 1:4 |
 
-> 语义模型权重（bge-small-en-v1.5, 133MB）需自备并放到 `models/bge-small-en-v1.5/`，
-> 缺失时 `02` 会提示，下游仍能跑（内容相关通道会跳过）。
+**为什么是 popularity^0.75**：均匀负采样会让模型过度学习长尾（大量负样本从未真实曝光）；0.75 次幂（word2vec 经验值）在「贴近真实曝光分布」和「保留中长尾信号」之间取平衡。
+
+**切分**：留一法（leave-one-out by time）——每用户最后一次点击进 test、倒数第二次进 valid、其余进 train，预测目标与线上一致（"下一个"而非"随机某个"）。增长模块因标签分辨率问题单独使用时间窗口切分（见 §6）。
+
+### 2. 特征工程
+
+用户侧画像：行为规模、点击/转化率、评分均值与方差、活跃月数、生命周期、近 10 次评分均值（口味漂移）。
+物品侧画像：热度、口碑、**时间衰减热度**（半衰期 30 天，抑制老内容的马太效应）、去重用户数、内容年龄。
+
+口径全部落在 `src/recsys/data/sql/*.sql`（DuckDB 方言），特征即文档。两条铁律：
+
+1. **先切分、后算特征**——画像统计只允许来自训练集窗口，否则物品热度会把测试集信息泄露给模型；
+2. 稠密特征统一 `log1p → z-score`，count=0 的冷启动物品经标准化后呈现负偏移，这本身就是「无历史」的有效信号。
+
+### 3. 召回层
+
+| 通道 | 职责 | 关键设计 |
+| --- | --- | --- |
+| ItemCF | 强共现信号，对老用户稳定可解释 | IUF 给活跃用户降权；相似度仅保留 Top100 近邻；时间衰减抑制过期共现 |
+| 双塔向量 | 可泛化、可接内容特征、支持 ANN 毫秒检索 | batch 内负样本 softmax + logQ 频率修正；物品塔接入内容语义向量 |
+| 时间衰减热榜 | 新用户兜底、保底多样性 | 半衰期 30 天的指数衰减热度 |
+
+三路用 **RRF**（`score = Σ w/(60+rank)`）融合：只依赖 rank，天然免疫三路分数量纲与分布漂移。
+
+### 4. 排序层
+
+三种结构共享同一份特征 embedding 底座（user/item/gender/age/occupation/genre-pooled + 用户/物品统计），因此结构间的差距可归因：
+
+- **DeepFM**：FM 显式二阶交叉 + DNN 隐式交叉，作为「无序列特征」时的对照基线；
+- **DIN**：候选物品作为 query 对历史行为做 target attention，兴趣随候选变化；
+- **ESMM**：`pCTCVR = pCTR × pCVR`，在全曝光空间监督 CTCVR、点击空间监督 CTR，绕开 CVR 的 sample selection bias。
+
+### 5. 重排层
+
+精排是 pointwise 的，看不见「列表内部的相互关系」。重排提供两个机制：
+
+- **MMR**：`argmax[λ·rel − (1−λ)·max_sim(selected)]`，λ 是精度↔多样性的连续旋钮；
+- **类目打散**：同一类目硬约束 ≤2 条。
+
+### 6. 冷启动与用户增长
+
+**冷启动**的数学事实：从未参与训练的 ID Embedding 是随机初始化，在协同模型眼里与噪声无异。解法是给新内容开独立通道（语义向量 / 标签倒排），再以「扶持额度」决定每个用户候选里给新内容留几个坑位——额度本身就是可运营的流量分配旋钮。
+
+**用户增长**有两个独立于主链路的设计决策：
+
+1. 留一法下每个用户未来只有 1 条行为，「用户价值」会退化成 0/1，因此增长标签按**时间窗口**单独切（后 20% 时间轴为未来窗口）；
+2. Lookalike 不能用在整个训练集上学出的双塔用户向量（含未来窗口行为），本仓库只用过去窗口的行为矩阵现算 TruncatedSVD 向量，保证「推过去、看不未来」。
 
 ---
 
-## 4. 实验结果（测试集 6038 用户，均为实跑数据）
+## 实验结果
 
-### 4.1 召回层：多路召回对比
+所有数字均为本仓库代码真实跑出（测试集 6,038 用户，固定 seed=42）。
+
+### 召回层：多路对比
 
 ![](assets/recall_stage.png)
 
@@ -89,12 +123,11 @@ pip install pytest && python -m pytest tests -q   # 42 passed
 | 双塔（IVF100_probe20） | 0.0595 | 0.1072 | 0.2042 | 0.0400 |
 | **三路融合（RRF）** | **0.0843** | **0.1454** | **0.2569** | **0.0572** |
 
-**结论**：双塔在 3.9k 物品的小物空间里只比 ItemCF 高 1.8pt——这是**信息压缩的代价**（64 维向量装不下逐 item 的共现结构），
-但它的价值在于能吃到内容侧特征并把冷启动接起来；两者 RRF 融合后比最强单路高 **24%**，这才是开多路的真正理由。
+双塔在 3.9k 物品的小物空间里只比 ItemCF 高 1.8pt——这是信息压缩到 64 维的代价；但两路 RRF 融合后比最强单路高 24%，多路的价值在互补而非单点最强。
 
-### 4.2 ANN 检索的 trade-off
+### ANN 检索的 trade-off
 
-真实双塔向量（3883 个物品，6040 个 query）：
+真实双塔向量（3,883 items / 6,040 queries）：
 
 | 索引 | 召回保持率 | QPS | 单查询延迟 |
 | --- | ---: | ---: | ---: |
@@ -105,11 +138,9 @@ pip install pytest && python -m pytest tests -q   # 42 passed
 
 ![](assets/ann_scaling.png)
 
-**这个结论值得单独说**：在 4k 规模的库上**根本不该上 ANN**——Flat 已经是量级最便宜的方案，IVF 用 7% 的召回损失只换来 1.4 倍吞吐。
-把库规模推到 20 万后曲线才翻转：Flat 0.253ms → **IVF 0.0445ms（5.7 倍）且召回保持 100%**。
-所以"用什么索引"是一个由数据规模决定的工程决策，不是技术品味问题。
+在 4k 规模的库上**不该上 ANN**——Flat 已是量级最便宜的方案。把库规模推到 20 万后曲线才翻转：Flat 0.253ms → **IVF 0.0445ms（5.7×）且召回保持 100%**。索引选型是由数据规模决定的工程决策，不是技术品味问题。
 
-### 4.3 精排：DeepFM / DIN / ESMM 多目标
+### 精排与多目标
 
 ![](assets/rank_stage.png)
 
@@ -121,16 +152,15 @@ pip install pytest && python -m pytest tests -q   # 42 passed
 | **DIN** | 0.44M | **0.8190** | **0.8072** | **0.1868** | — |
 | ESMM | 0.48M | 0.8142 | 0.8042 | 0.1904 | **0.8467** |
 
-- DIN 相对 DeepFM **+2.15pt AUC**：显式地用候选物品对历史做兴趣激活是有效的，代价只是多 2 万参数。
-- ESMM 的 CTR 分支略低于纯 DIN（多任务常见的"负迁移"），但它额外拿到了 CVR-AUC 0.761 / CTCVR-AUC 0.847，
-  这正是多目标存在的意义——**同一份样本同时产出点击率与转化率**，线上可以直接用 pCTR×pCVR 排序。
-- GAUC 普遍比 AUC 低 1pt 左右：说明模型在"用户之间"的比较上沾了活跃度的光，真实排序能力要按用户内比较来看。
+- DIN 相对 DeepFM **+2.15pt AUC**：target attention 有效，代价只有 2 万参数；
+- ESMM 的 CTR 分支略低于纯 DIN（多任务常见的负迁移），但额外拿到 CVR-AUC 0.761 / CTCVR-AUC 0.847，一份样本同时产出点击率与转化率；
+- GAUC 普遍比 AUC 低约 1pt：模型在「用户之间」的比较上沾了活跃度的光，真实排序能力要看用户内比较。
 
-### 4.4 端到端漏斗
+### 端到端漏斗
 
 ![](assets/funnel_stage.png)
 
-候选集 80，召回命中率 **0.2569** —— 这是精排再怎么优化都突破不了的天花板。
+候选集 80，召回命中率 **0.2569**——这是精排优化无法突破的天花板。
 
 | 阶段 | Recall@10 | NDCG@10 | MAP@10 | ILD↑ | 类目覆盖↑ |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -141,12 +171,11 @@ pip install pytest && python -m pytest tests -q   # 42 passed
 | DIN + MMR(λ=0.7) | 0.1562 | 0.0700 | 0.0445 | 0.6310 | 0.7744 |
 | **DIN + 类目打散(≤2/类)** | **0.1684** | **0.0742** | 0.0464 | **0.8143** | 0.7239 |
 
-**最有意思的一条**：类目打散在**提升精度的同时**把多样性拉高了 35%。原因是精排 Top10 里大量相近物品互相挤占，
-去掉同质占位后，真正相关的长尾内容才有机会浮上来——这说明"精排最优 ≠ 列表最优"，列表级收益必须靠重排拿。
+值得注意：类目打散在**提升精度的同时**把多样性拉高 35%——同质占位被移除后，真正相关的长尾内容才有机会浮上来。「精排最优 ≠ 列表最优」，列表级收益必须靠重排拿。
 
-### 4.5 冷启动：新内容分发
+### 冷启动：新内容分发
 
-93 件"全新内容"（训练集中行为全部抹除），3975 个用户的 13042 条 held-out 交互：
+93 件「全新内容」（训练集中行为全部抹除），3,975 个用户的 13,042 条 held-out 交互：
 
 | 冷启通道 | 扶持额度 | Recall@50 | HitRate@50 | 新内容曝光率 |
 | --- | ---: | ---: | ---: | ---: |
@@ -157,13 +186,11 @@ pip install pytest && python -m pytest tests -q   # 42 passed
 
 ![](assets/coldstart.png)
 
-**没有独立通道时，新内容的 Recall 就是 0** —— 没有任何行为数据的物品，它的 ID Embedding 从未被更新，
-在协同模型眼里和随机噪声没有区别。开了内容语义通道后，额度 20 条就能把 Recall@50 拉到 0.40、覆盖率做到 98.9%。
-额度这个旋钮本身就是业务价值：**它决定了新内容在流量分配里的话语权**。
+没有独立通道时新内容的 Recall 就是 0。额度 20 条即可把 Recall@50 拉到 0.40、覆盖率 98.9%。
 
-### 4.6 用户增长：Lookalike + pLTV
+### 用户增长：Lookalike + pLTV
 
-按时间轴切（后 20% 为未来窗口，112,448 条交互），候选用户 5363：
+时间轴切分（后 20% 为未来窗口，112,448 条交互），候选用户 5,363：
 
 | 人群包 | 规模 | 高价值占比 | 相对大盘 Lift | 人均未来正向行为 |
 | --- | ---: | ---: | ---: | ---: |
@@ -174,79 +201,96 @@ pip install pytest && python -m pytest tests -q   # 42 passed
 
 ![](assets/growth.png)
 
-价值模型：Spearman **0.611**、高价值用户识别 AUC **0.918**、Lift@10% **4.37**。
-两步法（先按相似人群扩量、再用价值模型卡质量）相比纯向量相似，把命中率从 41.8% 推到 77.8%——
-**相似度解决的是"像不像"，价值模型解决的是"值不值"，两个问题不能混为一谈**。
+价值模型：Spearman **0.611**、高价值识别 AUC **0.918**、Lift@10% **4.37**。相似度解决「像不像」，价值模型解决「值不值」，两个问题不能混为一谈。
 
 ---
 
-## 5. 工程与实验规范
+## 可靠性：两个真实踩到并修复的数据泄漏
 
-这一部分比指标更重要，因为推荐系统的线上事故几乎都来自这里。
-
-### 5.1 两个真实踩过的数据泄漏（都已修复，且有测试守着）
+推荐系统的线上事故大多来自数据，而不是模型。本仓库把两次踩坑沉淀成了回归测试：
 
 | 问题 | 现象 | 修复 | 护栏 |
 | --- | --- | --- | --- |
-| **画像特征穿越**：用全量交互（含 test）统计物品热度 | 指标虚高，线上必然回落 | 画像只用 `split_tag == train` 统计 | — |
-| **DIN 目标泄漏**：训练时目标物品本身就在行为序列里 | train loss 一路降到 0.24，**valid AUC 反而从 0.65 崩到 0.60** | 按曝光时刻做因果截断，每条样本只保留该时刻之前的行为 | `tests/test_data.py::test_causal_mask_file_consistency` |
+| **画像特征穿越**：用全量交互（含 test）统计物品热度 | 离线指标虚高，线上必然回落 | 画像只用 `split_tag == train` 统计 | — |
+| **DIN 目标泄漏**：训练时目标物品本身在行为序列里 | train loss 一路降到 0.24，**valid AUC 反而从 0.65 崩到 0.60** | 按曝光时刻因果截断，每条样本只保留该时刻之前的行为；负样本与对应正样本共享同一 keep 值，否则模型从「历史长度」反推标签 | `tests/test_data.py::test_causal_mask_file_consistency` |
 
-第二个坑尤其阴险：**loss 优化得越漂亮，模型错得越离谱**。修复后双塔 valid Recall@50 从 0.145 提升到 0.215，
-DIN 的 AUC 从塌陷的 0.60 恢复到 0.82。这个经验的价值超过任何一个模型结构。
+第二个坑的教训：**loss 优化得越漂亮，模型可能错得越离谱**。修复后双塔 valid Recall@50 从 0.145 提升到 0.215，DIN AUC 从 0.60 恢复到 0.819。
 
-### 5.2 其它工程要点
+其它工程实践：
 
-- **负采样**：popularity^0.75 加权，Batch 化实现让负采样从 4.5min 降到 **2s**（550k 正样本 × 4 负样本）。
-- **SQL 特征**：画像口径写在 `src/recsys/data/sql/*.sql`（CTE + 窗口函数 + 时间衰减），用 DuckDB 执行，可读可审阅。
-- **评测校准**：NDCG/Recall/AUC/GAUC 均为手写实现，并与 sklearn 对拍（`tests/test_metrics.py`）。
-- **可复现**：全局固定种子；所有 best checkpoint 按 valid 指标挑选，不拿 test 调参。
-- **测试**：42 个 pytest 用例，覆盖指标正确性、训练集泄漏、冷启动隔离、模型 masking 行为等。
+- 负采样批化实现：550k 正样本 × 4 负样本的耗时从 4.5min 降到 **2s**；
+- 所有指标为手写实现并与 sklearn 对拍（`tests/test_metrics.py`）；
+- best checkpoint 按 valid 指标挑选，不用 test 调参；全局固定随机种子；
+- 单次请求端到端演示：`python scripts/09_demo_serve.py --user 7`（召回 → 精排 → 重排全程延迟打印）。
 
 ---
 
-## 6. 已知不足与下一步
+## 快速开始
 
-诚实地说，这个项目还有这些没做完的地方：
+```bash
+# Python 3.12 + torch 2.5.1(cu121) 验证通过
+pip install -r requirements.txt
 
-1. **负样本策略偏弱**：精排只用流行度负采样，没有用"召回靠前的未点击样本"做 hard negative，工业上这一项通常能再涨 1–2pt AUC。
-2. **双塔没有真上线检索**：ItemCF 在本数据集上仍然强于双塔，说明 Embedding 侧还有调参空间（更高维 + hard negative + 更长训练）。
-3. **缺真正的多模态**：内容是标题文本向量，没有图像/音频塔；游戏社区场景里封面图、视频帧才是大头。
-4. **没有在线实验闭环**：离线涨点不等于线上收益，缺 AA/AB 实验框架与流量分桶模拟。
-5. **增长模块规模偏小**：KNN 人群包只扩到 55 人，真实场景应按 DAU 量级重做。
+# 数据放到 data/raw（MovieLens-1M 标准格式：ratings.dat / movies.dat / users.dat）
+python scripts/01_prepare_data.py           # ~30s：SQL 画像 + 留一法切分 + 负采样
+python scripts/02_build_content.py          # ~60s：bge-small-en-v1.5 内容向量 + 标签生成
+python scripts/03_train_two_tower.py        # ~4min：双塔召回
+python scripts/04_eval_recall.py            # 召回层评测 + ANN 权衡
+python scripts/04b_ann_scaling.py           # ANN 规模效应（4k → 20 万）
+python scripts/05_train_rank.py --model all # ~10min：DeepFM / DIN / ESMM
+python scripts/06_eval_funnel.py            # 全链路漏斗 + 重排
+python scripts/07_eval_coldstart.py         # 冷启动
+python scripts/08_eval_growth.py            # 用户增长
+python scripts/09_demo_serve.py --user 7    # 单次请求全链路演示
+python -m pytest tests -q                   # 42 passed
+```
 
-优先级排序：hard negative → 多模态内容塔 → 线上模拟 & 实验框架。
+一键复现：`python scripts/run_all.py`。所有阶段产物落在 `data/processed/`（中间数据）与 `results/`（指标 JSON），图表由 `scripts/10_make_figures.py` 生成。
+
+> 语义模型权重（[bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5)，133MB）需自备并放到 `models/bge-small-en-v1.5/`；缺失时内容相关通道自动跳过，主链路仍可运行。
 
 ---
 
-## 7. 目录结构
+## 目录结构
 
 ```
 ├── scripts/            10 个阶段的入口脚本，编号即执行顺序
 ├── src/recsys/
-│   ├── common.py       种子/日志/计时/配置
+│   ├── common.py       种子 / 日志 / 计时 / 配置
 │   ├── data/           数据读取、DuckDB SQL 特征、负采样、张量装载
-│   ├── models/         two_tower.py(双塔) / rank.py(DeepFM·DIN·ESMM)
-│   ├── recall/         index.py(Faiss) / collaborative.py(ItemCF·热度·RRF)
-│   ├── rerank/         mmr.py(MMR·类目打散)
-│   ├── growth/         lookalike.py(Lookalike·pLTV)
-│   ├── coldstart/      content.py(语义向量·零样本标签)
-│   └── eval/           metrics.py(手写指标)
+│   ├── models/         two_tower.py（双塔） / rank.py（DeepFM · DIN · ESMM）
+│   ├── recall/         index.py（Faiss 封装） / collaborative.py（ItemCF · 热度 · RRF）
+│   ├── rerank/         mmr.py（MMR · 类目打散）
+│   ├── growth/         lookalike.py（Lookalike · pLTV）
+│   ├── coldstart/      content.py（语义向量 · 零样本标签）
+│   └── eval/           metrics.py（手写指标，含 GAUC / ILD / Lift）
 ├── tests/              42 个单测（指标对拍 + 泄漏护栏）
-├── docs/               系统设计说明与面经
-└── results/            各阶段 JSON 指标，图由 scripts/10_make_figures.py 生成
+├── docs/               系统设计说明
+└── results/            各阶段 JSON 指标
 ```
 
 ---
 
-## 8. 面向 JD 的能力对照
+## 已知局限与路线图
 
-| JD 关键词 | 本仓库对应实现 |
-| --- | --- |
-| 双塔模型 / Embedding / 向量召回 | `models/two_tower.py` + Faiss IVF/HNSW + 多维 ANN 权衡实验 |
-| 召回排序 / 粗排精排 | ItemCF/热度/双塔三路 RRF → DIN/ESMM 精排 → MMR 重排 |
-| 点击/转化预估、多任务学习 | ESMM（CTR + CVR，pCTCVR = pCTR × pCVR） |
-| 冷启动 / 内容分发 | 语义内容通道 + 标签倒排通道 + 扶持额度旋钮 |
-| 用户增长 / 相似人群扩展 / 用户价值预估 | Lookalike（质心/KNN）+ pLTV（Spearman 0.611 / AUC 0.918 / Lift 3.88x） |
-| LLM / 多模态内容理解、语义召回、标签生成 | bge 语义向量 + 受控词表零样本标签生成 + 语义召回通道 |
-| SQL / Hive / Spark 类数据处理 | DuckDB CTE + 窗口函数画像，pandas 等价实现兜底 |
-| 数据分析、实验分析 | 4 组对照实验 + 2 个真实泄漏案例复盘 + 42 个测试护栏 |
+诚实地说，这个项目还有这些没做完：
+
+1. **负样本策略偏弱**：精排只用流行度负采样，没有用「召回靠前的未点击样本」做 hard negative，工业上通常能再涨 1–2pt AUC；
+2. **双塔没有打过 ItemCF**：小物空间下 Embedding 侧仍有调参空间（更高维 + hard negative + 更长训练）；
+3. **缺真正的多模态**：内容只有标题文本向量，没有图像 / 音频塔；
+4. **没有在线实验闭环**：离线涨点不等于线上收益，缺 AA/AB 框架与流量分桶模拟；
+5. **增长模块规模偏小**：KNN 人群包只扩到 55 人，真实场景应按 DAU 量级重做。
+
+优先级：hard negative → 多模态内容塔 → 线上模拟与实验框架。
+
+---
+
+## 致谢
+
+- [MovieLens](https://grouplens.org/datasets/movielens/1m/)（GroupLens Research）——基准数据集
+- [BAAI bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5)——文本语义向量
+- [faiss](https://github.com/facebookresearch/faiss)、[DuckDB](https://duckdb.org/)、[PyTorch](https://pytorch.org/)
+
+## License
+
+[MIT](LICENSE)
