@@ -7,7 +7,7 @@
   "raw_ctr_auc_future_click": 0.7394,
   "popularity_auc_future_click": 0.6186,
   "num_items_scored": 3345,
-  "num_users_with_intent": 6035,
+  "num_users_with_intent": 6038,
   "intent_tag_vocab": 42,
-  "exposure_gini": 0.6612
+  "exposure_gini": 0.645
 }

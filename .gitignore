@@ -1,9 +1,11 @@
 # 原始数据与大模型权重不入库（见 README 的快速开始）
-data/raw/
-data/processed/
-models/
-checkpoints/
-logs/
+# 注意必须用前导斜杠锚定在仓库根：`models/` 这种写法会匹配任意层级，
+# 把核心代码包 src/recsys/models/ 一并忽略——这正是它从 GitHub 上丢失的原因
+/data/raw/
+/data/processed/
+/models/
+/checkpoints/
+/logs/
 assets/__pycache__/
 
 # 中间产物体积过大

@@ -91,7 +91,14 @@ def collect_files() -> list[str]:
         if "resume" in low or "preview" in low or "简历" in rel:
             print(f"  skip(private): {rel}")
             continue
-        if any(part in SKIP_DIRS for part in rel.split("/")[:-1]):
+        # 只按「顶层目录名」排除（根目录的 data/ models/ checkpoints/ logs/ 等）。
+        # 曾经的写法是匹配路径中任意一层目录名，导致 src/recsys/data、
+        # src/recsys/models 两个核心代码包被误当成数据目录而漏发布——
+        # 仓库里缺失的正是这两个包，这是那次事故的直接原因。
+        if rel.split("/")[0] in SKIP_DIRS:
+            continue
+        if any(part in {".git", "__pycache__", ".pytest_cache", ".workbuddy"}
+               for part in rel.split("/")[:-1]):
             continue
         if p.suffix in SKIP_SUFFIX and not rel.endswith((".md", ".sql", ".txt")):
             continue

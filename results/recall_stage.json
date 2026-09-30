@@ -2,71 +2,71 @@
   "table": [
     {
       "召回通道": "热度榜(30天半衰期)",
-      "Recall@10": 0.0313,
-      "Recall@20": 0.052,
-      "Recall@50": 0.1118,
-      "NDCG@20": 0.0208,
-      "HitRate@50": 0.1118
+      "Recall@10": 0.0403,
+      "Recall@20": 0.0705,
+      "Recall@50": 0.1276,
+      "NDCG@20": 0.0282,
+      "HitRate@50": 0.1276
     },
     {
       "召回通道": "ItemCF(IUF+Top100)",
-      "Recall@10": 0.0633,
-      "Recall@20": 0.1067,
-      "Recall@50": 0.1883,
-      "NDCG@20": 0.0429,
-      "HitRate@50": 0.1883
+      "Recall@10": 0.0705,
+      "Recall@20": 0.1151,
+      "Recall@50": 0.2013,
+      "NDCG@20": 0.046,
+      "HitRate@50": 0.2013
     },
     {
       "召回通道": "双塔(暴力检索)",
-      "Recall@10": 0.0598,
-      "Recall@20": 0.1083,
-      "Recall@50": 0.2067,
-      "NDCG@20": 0.0404,
-      "HitRate@50": 0.2067
+      "Recall@10": 0.0791,
+      "Recall@20": 0.1345,
+      "Recall@50": 0.2507,
+      "NDCG@20": 0.0518,
+      "HitRate@50": 0.2507
     },
     {
       "召回通道": "三路融合(RRF)",
-      "Recall@10": 0.0843,
-      "Recall@20": 0.1454,
-      "Recall@50": 0.2569,
-      "NDCG@20": 0.0572,
-      "HitRate@50": 0.2569
+      "Recall@10": 0.0794,
+      "Recall@20": 0.1419,
+      "Recall@50": 0.267,
+      "NDCG@20": 0.0523,
+      "HitRate@50": 0.267
     },
     {
       "召回通道": "双塔(IVF100_probe20)",
-      "Recall@10": 0.0595,
-      "Recall@20": 0.1072,
-      "Recall@50": 0.2042,
-      "NDCG@20": 0.04,
-      "HitRate@50": 0.2042
+      "Recall@10": 0.0791,
+      "Recall@20": 0.1342,
+      "Recall@50": 0.2507,
+      "NDCG@20": 0.0518,
+      "HitRate@50": 0.2507
     }
   ],
   "ann_benchmark": {
     "Flat": {
       "kind": "flat",
       "recall_vs_flat": 1.0,
-      "qps": 142050.7996146991,
-      "latency_ms_per_q": 0.007039735099784136
+      "qps": 62830.788759338284,
+      "latency_ms_per_q": 0.01591576390725119
     },
     "IVF100_probe10": {
       "kind": "ivf100_probe10",
-      "recall_vs_flat": 0.9261423841059603,
-      "qps": 203853.64384970526,
-      "latency_ms_per_q": 0.004905480133272809
+      "recall_vs_flat": 0.9745033112582782,
+      "qps": 94443.57636595234,
+      "latency_ms_per_q": 0.010588332615922706
     },
     "IVF256_probe32": {
       "kind": "ivf256_probe32",
-      "recall_vs_flat": 0.9811854304635762,
-      "qps": 179994.3975284393,
-      "latency_ms_per_q": 0.005555728476726611
+      "recall_vs_flat": 0.9975430463576159,
+      "qps": 67041.83231615942,
+      "latency_ms_per_q": 0.01491606009937418
     },
     "HNSW32_ef64": {
       "kind": "hnsw_m32_ef64",
-      "recall_vs_flat": 0.9986059602649007,
-      "qps": 101014.49323263996,
-      "latency_ms_per_q": 0.009899569536986782
+      "recall_vs_flat": 0.9997417218543047,
+      "qps": 29896.756007927674,
+      "latency_ms_per_q": 0.03344844503312773
     }
   },
-  "num_test_users": 6038,
+  "num_test_users": 3502,
   "topk": 50
 }
