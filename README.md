@@ -364,6 +364,26 @@ python -m pytest tests -q                   # 53 passed
 
 一键复现：`python scripts/run_all.py`。所有阶段产物落在 `data/processed/`（中间数据）与 `results/`（指标 JSON），图表由 `scripts/10_make_figures.py` 生成。
 
+### 本地 Web 交互 Demo
+
+跑完 `01 → 05`（约 15 分钟）后，可以启动浏览器交互界面：
+
+```bash
+python webapp/server.py              # 预热 ~1min（含 ItemCF 全量训练），然后打开
+open http://127.0.0.1:8000/          # 默认 127.0.0.1:8000，--port 可改
+```
+
+零第三方 Web 框架（标准库 `http.server` 实现的 REST 服务），重计算全部在启动时物化，**单次推荐请求端到端 30~50ms**。界面支持：
+
+- 6040 个用户任选 / 随机 / 搜索，附画像面板（人口属性、兴趣类目分布、最近行为）
+- **精排模型在线切换**（DeepFM / DIN / ESMM，ESMM 同时展示 pCTR 与 pCVR）
+- Top-N、MMR 多样性 λ、冷启扶持额度实时调节（扶持=保位曝光，❄ 徽标标出）
+- 逐阶段**延迟分解**、召回漏斗（各通道候选数）、重排前后 ILD/类目覆盖率对比
+- 每张推荐卡片带**召回通道归因徽标**（热度 / ItemCF / 双塔 / 冷启）
+- 点击卡片弹出「看了又看」——bge 内容语义向量余弦 Top-9
+
+![web demo](assets/web_demo.png)
+
 > 脚本依赖顺序：`11` 依赖 `02`（内容向量），`12`/`13` 依赖 `03`（双塔向量）与 `11`（质量分/意图），`14` 依赖 `03` 与 `11`。`run_all.py` 已按此顺序编排。
 
 > 语义模型权重（[bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5)，133MB）需自备并放到 `models/bge-small-en-v1.5/`；缺失时内容相关通道自动跳过，主链路仍可运行。
@@ -384,6 +404,7 @@ python -m pytest tests -q                   # 53 passed
 │   ├── coldstart/      content.py（语义向量 · 零样本标签 · 质量分 · 意图画像）
 │   └── eval/           metrics.py（手写指标，含 GAUC / ILD / Lift）
 ├── tests/              53 个单测（指标对拍 + 泄漏护栏 + A/B 统计工具）
+├── webapp/             本地 Web 交互 Demo（server.py 零依赖后端 + static/ 前端）
 ├── docs/               系统设计说明
 └── results/            各阶段 JSON 指标
 ```

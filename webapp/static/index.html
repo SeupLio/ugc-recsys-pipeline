@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UGC 推荐系统 · 交互式 Demo</title>
+<style>
+:root {
+  --bg: #0b1020; --bg2: #121a33; --card: #161f3d; --line: #27335c;
+  --txt: #e8edf9; --sub: #8b97bd; --acc: #6c7cff; --acc2: #22d3ee;
+  --gold: #fbbf24; --pink: #f472b6; --green: #34d399; --hot: #fb7185;
+  --icf: #38bdf8; --tt: #a78bfa; --cold: #34d399;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: radial-gradient(1200px 600px at 80% -10%, #1b2550 0%, var(--bg) 55%);
+  color: var(--txt); font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  min-height: 100vh;
+}
+/* ---------- 顶栏 ---------- */
+header {
+  display: flex; align-items: center; gap: 14px; padding: 14px 22px;
+  border-bottom: 1px solid var(--line); position: sticky; top: 0;
+  background: rgba(11,16,32,.92); backdrop-filter: blur(8px); z-index: 50;
+}
+.logo { width: 34px; height: 34px; border-radius: 9px;
+  background: linear-gradient(135deg, var(--acc), var(--acc2));
+  display: grid; place-items: center; font-size: 18px; }
+header h1 { font-size: 17px; font-weight: 600; }
+header .sub { font-size: 12px; color: var(--sub); }
+.hstats { margin-left: auto; display: flex; gap: 10px; }
+.hstat { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  padding: 5px 10px; font-size: 11px; color: var(--sub); text-align: center; }
+.hstat b { display: block; font-size: 14px; color: var(--txt); }
+/* ---------- 布局 ---------- */
+.wrap { display: grid; grid-template-columns: 300px 1fr; gap: 16px; padding: 16px 22px; max-width: 1440px; margin: 0 auto; }
+@media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+.panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+.panel h2 { font-size: 13px; color: var(--sub); font-weight: 600; margin-bottom: 10px; letter-spacing: .5px; }
+/* ---------- 用户选择 ---------- */
+.usearch { display: flex; gap: 8px; margin-bottom: 10px; }
+.usearch input { flex: 1; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--txt); padding: 8px 10px; font-size: 13px; outline: none; }
+.usearch input:focus { border-color: var(--acc); }
+.btn { background: var(--bg2); border: 1px solid var(--line); color: var(--txt); border-radius: 8px;
+  padding: 8px 12px; font-size: 13px; cursor: pointer; transition: .15s; white-space: nowrap; }
+.btn:hover { border-color: var(--acc); color: #fff; }
+.btn.pri { background: linear-gradient(135deg, var(--acc), #8b5cf6); border: none; font-weight: 600; }
+.btn.pri:hover { filter: brightness(1.15); }
+.ulist { max-height: 240px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
+.urow { display: flex; gap: 8px; align-items: center; padding: 7px 10px; cursor: pointer;
+  border-bottom: 1px solid #1c2647; font-size: 12.5px; transition: background .12s; }
+.urow:hover { background: var(--bg2); }
+.urow.on { background: #1d2a58; box-shadow: inset 3px 0 0 var(--acc); }
+.urow .uid { color: var(--acc2); font-family: ui-monospace, monospace; min-width: 40px; }
+.urow .umeta { color: var(--sub); margin-left: auto; font-size: 11px; }
+.uprofile { margin-top: 12px; }
+.umeta-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.chip { background: var(--bg2); border: 1px solid var(--line); border-radius: 99px;
+  padding: 3px 10px; font-size: 11.5px; color: var(--sub); }
+.chip b { color: var(--txt); }
+.gbar-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 11.5px; }
+.gbar-row .gl { width: 74px; color: var(--sub); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gbar-row .gt { flex: 1; height: 8px; background: var(--bg2); border-radius: 4px; overflow: hidden; }
+.gbar-row .gt i { display: block; height: 100%; border-radius: 4px;
+  background: linear-gradient(90deg, var(--acc), var(--acc2)); }
+.gbar-row .gv { width: 40px; color: var(--sub); font-family: ui-monospace, monospace; }
+.hist { display: flex; gap: 8px; overflow-x: auto; padding-top: 8px; }
+.hcard { min-width: 130px; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 10px; font-size: 11.5px; }
+.hcard .t { font-weight: 600; font-size: 12px; margin-bottom: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.hcard .g { color: var(--sub); font-size: 10.5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.hcard .r { color: var(--gold); font-size: 11px; margin-top: 3px; }
+/* ---------- 控制条 ---------- */
+.ctrls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.seg { display: flex; background: var(--bg2); border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.seg button { background: none; border: none; color: var(--sub); padding: 7px 13px; font-size: 12.5px;
+  cursor: pointer; transition: .15s; }
+.seg button.on { background: var(--acc); color: #fff; font-weight: 600; }
+.ctl { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--sub); }
+.ctl input[type=range] { width: 110px; accent-color: var(--acc); }
+.ctl b { color: var(--txt); font-family: ui-monospace, monospace; min-width: 34px; }
+.switch { position: relative; width: 40px; height: 22px; background: var(--bg2); border: 1px solid var(--line);
+  border-radius: 99px; cursor: pointer; transition: .2s; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--sub); transition: .2s; }
+.switch.on { background: var(--acc); border-color: var(--acc); }
+.switch.on::after { left: 20px; background: #fff; }
+#goBtn { margin-left: auto; }
+/* ---------- 延迟面板 ---------- */
+.analyze { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+@media (max-width: 1100px) { .analyze { grid-template-columns: 1fr; } }
+.lbar { display: flex; height: 26px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); margin: 8px 0 6px; }
+.lbar i { display: grid; place-items: center; font-size: 10px; color: #fff; min-width: 0; overflow: hidden; transition: width .4s; }
+.lbar .lhot { background: var(--hot); } .lbar .licf { background: var(--icf); }
+.lbar .ltt { background: var(--tt); } .lbar .lrank { background: var(--gold); color: #333; }
+.lbar .lrr { background: var(--green); color: #063; }
+.llist { font-size: 11.5px; color: var(--sub); line-height: 1.8; }
+.llist .dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+.ltotal { font-size: 22px; font-weight: 700; font-family: ui-monospace, monospace; }
+.ltotal small { font-size: 11px; color: var(--sub); font-weight: 400; }
+.funnel { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.fnode { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; text-align: center; }
+.fnode b { display: block; font-size: 16px; font-family: ui-monospace, monospace; }
+.fnode span { font-size: 10.5px; color: var(--sub); }
+.farrow { color: var(--sub); font-size: 14px; }
+.fnode.hot b { color: var(--hot); } .fnode.icf b { color: var(--icf); }
+.fnode.tt b { color: var(--tt); } .fnode.cold b { color: var(--green); } .fnode.fuse b { color: var(--gold); }
+.dvgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.dvbox { background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.dvbox h3 { font-size: 11px; color: var(--sub); font-weight: 600; margin-bottom: 6px; }
+.dvbox .big { font-size: 20px; font-family: ui-monospace, monospace; }
+.dvbox .cap { font-size: 10.5px; color: var(--sub); }
+.dvbox.hl { border-color: var(--green); }
+.dvbox.hl .big { color: var(--green); }
+/* ---------- 结果区 ---------- */
+.results-head { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 12px; }
+.results-head h2 { font-size: 15px; color: var(--txt); }
+.results-head .hint { font-size: 11.5px; color: var(--sub); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(225px, 1fr)); gap: 12px; }
+.mcard { background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+  cursor: pointer; transition: transform .15s, border-color .15s; position: relative; }
+.mcard:hover { transform: translateY(-3px); border-color: var(--acc); }
+.mcard .rk { position: absolute; top: -8px; left: -8px; width: 26px; height: 26px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--acc), #8b5cf6); display: grid; place-items: center;
+  font-size: 12px; font-weight: 700; box-shadow: 0 3px 10px rgba(0,0,0,.4); }
+.mcard .t { font-size: 14px; font-weight: 600; margin: 2px 0 6px; min-height: 38px; }
+.mcard .g { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.gtag { font-size: 10px; color: var(--sub); background: var(--card); border: 1px solid var(--line);
+  border-radius: 4px; padding: 1px 6px; }
+.why { display: flex; gap: 4px; margin-bottom: 8px; flex-wrap: wrap; }
+.why i { font-style: normal; font-size: 10px; padding: 1.5px 7px; border-radius: 99px; font-weight: 600; }
+.why .w-hot { background: rgba(251,113,133,.15); color: var(--hot); border: 1px solid rgba(251,113,133,.35); }
+.why .w-icf { background: rgba(56,189,248,.12); color: var(--icf); border: 1px solid rgba(56,189,248,.35); }
+.why .w-tt { background: rgba(167,139,250,.12); color: var(--tt); border: 1px solid rgba(167,139,250,.35); }
+.why .w-cold { background: rgba(52,211,153,.12); color: var(--cold); border: 1px solid rgba(52,211,153,.35); }
+.sbar { height: 7px; border-radius: 4px; background: var(--card); overflow: hidden; }
+.sbar i { display: block; height: 100%; border-radius: 4px;
+  background: linear-gradient(90deg, var(--acc2), var(--acc)); }
+.mrow { display: flex; justify-content: space-between; font-size: 11px; color: var(--sub); margin-top: 6px; }
+.mrow b { color: var(--txt); font-family: ui-monospace, monospace; }
+.mrow .star { color: var(--gold); }
+.coldflag { position: absolute; top: 10px; right: 12px; font-size: 10px; color: var(--cold);
+  border: 1px dashed var(--cold); border-radius: 5px; padding: 1px 6px; }
+/* ---------- 重排前后对比 ---------- */
+.cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+.cmp .panel { padding: 10px 12px; }
+.cmp ol { list-style: none; }
+.cmp li { display: flex; gap: 8px; align-items: center; padding: 4px 0; font-size: 12px;
+  border-bottom: 1px dashed #1e2a52; }
+.cmp li .n { color: var(--sub); width: 20px; font-family: ui-monospace, monospace; }
+.cmp li .tt2 { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cmp li .sc { color: var(--acc2); font-family: ui-monospace, monospace; font-size: 11px; }
+.cmp .up { color: var(--green); font-size: 10px; } .cmp .down { color: var(--hot); font-size: 10px; }
+/* ---------- 模态框 ---------- */
+.modal-mask { position: fixed; inset: 0; background: rgba(5,8,18,.72); display: none;
+  place-items: center; z-index: 100; backdrop-filter: blur(4px); }
+.modal-mask.show { display: grid; }
+.modal { width: min(860px, 94vw); max-height: 88vh; overflow-y: auto; background: var(--card);
+  border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+.modal h3 { font-size: 17px; margin-bottom: 4px; }
+.modal .msub { color: var(--sub); font-size: 12px; margin-bottom: 14px; }
+.modal .mstats { display: flex; gap: 10px; margin-bottom: 14px; }
+.modal .close { float: right; cursor: pointer; color: var(--sub); font-size: 20px; }
+.modal .close:hover { color: var(--txt); }
+.sgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.scard { background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 10px; cursor: pointer; }
+.scard:hover { border-color: var(--acc2); }
+.scard .t { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.scard .sim { font-size: 11px; color: var(--acc2); font-family: ui-monospace, monospace; }
+.scard .g { font-size: 10.5px; color: var(--sub); margin-top: 3px; }
+.loading { text-align: center; color: var(--sub); padding: 40px; font-size: 13px; }
+.spin { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--line);
+  border-top-color: var(--acc); border-radius: 50%; animation: r 1s linear infinite; vertical-align: -4px; margin-right: 8px; }
+@keyframes r { to { transform: rotate(360deg); } }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+  background: #7f1d2d; color: #fff; padding: 10px 18px; border-radius: 10px; font-size: 13px;
+  transition: .3s; z-index: 200; opacity: 0; }
+.toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+.empty { color: var(--sub); text-align: center; padding: 50px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">🎬</div>
+  <div>
+    <h1>UGC 内容推荐系统</h1>
+    <div class="sub">召回 → 精排 → 重排 全链路本地交互演示</div>
+  </div>
+  <div class="hstats">
+    <div class="hstat"><b id="sUsers">—</b>用户</div>
+    <div class="hstat"><b id="sItems">—</b>内容</div>
+    <div class="hstat"><b id="sCold">—</b>冷启动</div>
+    <div class="hstat"><b id="sLat">—</b>端到端</div>
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- ============ 左栏：用户 ============ -->
+  <aside style="display:flex; flex-direction:column; gap:14px;">
+    <div class="panel">
+      <h2>👤 选择用户</h2>
+      <div class="usearch">
+        <input id="uSearch" type="text" placeholder="搜索用户 ID…">
+        <button class="btn" id="randBtn" title="随机换一个用户">🎲 随机</button>
+      </div>
+      <div class="ulist" id="uList"><div class="loading">加载中…</div></div>
+    </div>
+    <div class="panel uprofile" id="uProfile"></div>
+  </aside>
+
+  <!-- ============ 主区 ============ -->
+  <main style="display:flex; flex-direction:column; gap:14px; min-width:0;">
+    <div class="panel">
+      <div class="ctrls">
+        <div class="seg" id="modelSeg">
+          <button data-m="deepfm">DeepFM</button>
+          <button data-m="din" class="on">DIN</button>
+          <button data-m="esmm">ESMM</button>
+        </div>
+        <div class="ctl">Top-N <input type="range" id="topnR" min="5" max="20" step="5" value="10"><b id="topnV">10</b></div>
+        <div class="ctl">MMR <div class="switch on" id="mmrSw"></div></div>
+        <div class="ctl">λ <input type="range" id="lamR" min="0" max="1" step="0.05" value="0.7" disabled><b id="lamV">0.70</b></div>
+        <div class="ctl">冷启扶持 <input type="range" id="coldR" min="0" max="10" step="1" value="0"><b id="coldV">0</b></div>
+        <button class="btn pri" id="goBtn">⚡ 推荐</button>
+      </div>
+    </div>
+
+    <div class="analyze">
+      <div class="panel">
+        <h2>⏱ 请求延迟分解</h2>
+        <div class="lbar" id="lbar"></div>
+        <div class="llist" id="llist"></div>
+        <div class="ltotal" id="ltotal">— <small>ms 端到端</small></div>
+      </div>
+      <div class="panel">
+        <h2>🛗 召回漏斗（候选数）</h2>
+        <div class="funnel" id="funnel"></div>
+      </div>
+      <div class="panel">
+        <h2>🧬 多样性（重排前后）</h2>
+        <div class="dvgrid" id="dvg"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="results-head">
+        <h2>🎯 为用户 <span id="curUid">—</span> 生成的推荐</h2>
+        <span class="hint">点击卡片查看「看了又看」相似内容 · 徽标展示召回通道归因</span>
+      </div>
+      <div class="grid" id="rGrid"><div class="empty">从左侧选择一个用户，点击「⚡ 推荐」</div></div>
+      <div class="cmp" id="cmpWrap" style="display:none">
+        <div class="panel"><h2>重排前 · 粯CTR 排序</h2><ol id="cmpBefore"></ol></div>
+        <div class="panel"><h2>重排后 · MMR 多样性</h2><ol id="cmpAfter"></ol></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ============ 相似内容模态框 ============ -->
+<div class="modal-mask" id="modalMask">
+  <div class="modal" id="modalBox"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const state = { bootstrap: null, uid: null, profile: null, model: "din",
+  topn: 10, mmr: true, lam: 0.7, cold: 0, lastResp: null, uShown: 40 };
+
+/* ---------- 工具 ---------- */
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, c =>
+  ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 3200); }
+function fmtMs(v) { return v >= 100 ? v.toFixed(0) : v.toFixed(1); }
+function star(r) { return r >= 4.3 ? "★★★★★" : r >= 3.8 ? "★★★★" : r >= 3.2 ? "★★★" : "★★"; }
+
+/* ---------- 用户列表 ---------- */
+function renderUserList() {
+  const q = $("#uSearch").value.trim();
+  const us = state.bootstrap.users.filter(u => !q || String(u.id).includes(q));
+  const shown = us.slice(0, state.uShown);
+  $("#uList").innerHTML = shown.map(u => `
+    <div class="urow ${u.id === state.uid ? "on" : ""}" data-uid="${u.id}">
+      <span class="uid">#${u.id}</span><span>${esc(u.occ)}</span>
+      <span class="umeta">${u.gender}·${u.age}·${u.n}条</span>
+    </div>`).join("") +
+    (us.length > shown.length
+      ? `<div class="urow" id="uMore" style="justify-content:center;color:#8b97bd">还有 ${us.length - shown.length} 人，输入 ID 过滤 ↓</div>` : "");
+}
+$("#uSearch").addEventListener("input", () => { state.uShown = 40; renderUserList(); });
+$("#uList").addEventListener("click", (e) => {
+  const row = e.target.closest(".urow"); if (!row || row.id === "uMore") return;
+  selectUser(+row.dataset.uid);
+});
+
+/* ---------- 用户画像 ---------- */
+async function selectUser(uid) {
+  state.uid = uid;
+  renderUserList();
+  $("#curUid").textContent = "#" + uid;
+  try {
+    state.profile = await api(`/api/user/${uid}`);
+    const p = state.profile;
+    $("#uProfile").innerHTML = `
+      <h2>👤 用户 #${uid} 画像</h2>
+      <div class="umeta-row">
+        <span class="chip">${p.gender === "M" ? "男" : "女"}</span>
+        <span class="chip"><b>${esc(p.age)}</b> 岁</span>
+        <span class="chip">${esc(p.occ)}</span>
+        <span class="chip">行为 <b>${p.n_ratings}</b> 条</span>
+        <span class="chip">均分 <b>${p.mean_rating}</b></span>
+        <span class="chip">活跃 <b>${p.active_months}</b> 月</span>
+      </div>
+      <div style="margin-bottom:6px;font-size:11.5px;color:var(--sub)">兴趣类目分布（近 50 条历史）</div>
+      ${p.genre_dist.map(g => `
+        <div class="gbar-row">
+          <span class="gl">${esc(g.name)}</span>
+          <span class="gt"><i style="width:${Math.min(100, g.frac * 260)}%"></i></span>
+          <span class="gv">${(g.frac * 100).toFixed(0)}%</span>
+        </div>`).join("")}
+      <div style="margin:10px 0 4px;font-size:11.5px;color:var(--sub)">最近看过的内容（新→旧）</div>
+      <div class="hist">${p.history.slice(0, 18).map(h => `
+        <div class="hcard" onclick="openItem(${h.item})">
+          <div class="t">${esc(h.title)}</div>
+          <div class="g">${esc(h.genres)}</div>
+          <div class="r">${h.rating >= 4 ? "💚" : "⭐".repeat(Math.max(1, Math.round(h.rating/2)))} ${h.rating}</div>
+        </div>`).join("")}</div>`;
+  } catch (err) { toast("加载用户画像失败: " + err.message); }
+  recommend();
+}
+
+/* ---------- 推荐 ---------- */
+let recTimer = null;
+function recommend() {
+  if (!state.uid || recTimer) return;
+  recTimer = setTimeout(() => { recTimer = null; doRecommend(); }, 50);
+}
+async function doRecommend() {
+  const url = `/api/recommend?user=${state.uid}&model=${state.model}&topn=${state.topn}` +
+    `&lam=${state.mmr ? state.lam : 0}&rerank=${state.mmr}&cold=${state.cold}`;
+  $("#rGrid").innerHTML = `<div class="loading"><span class="spin"></span>召回 → 精排 → 重排 计算中…</div>`;
+  try {
+    const r = await api(url);
+    if (r.error) { toast("推荐失败: " + r.error); return; }
+    state.lastResp = r;
+    $("#sLat").textContent = fmtMs(r.latency.total) + "ms";
+    renderLatency(r); renderFunnel(r); renderDiversity(r); renderResults(r);
+  } catch (err) {
+    $("#rGrid").innerHTML = `<div class="empty">😅 请求失败：${esc(err.message)}</div>`;
+  }
+}
+
+function renderLatency(r) {
+  const L = r.latency;
+  const segs = [
+    ["热度", L.hot || 0, "lhot"], ["ItemCF", L.icf || 0, "licf"],
+    ["双塔", L.tt || 0, "ltt"], ["精排", L.rank || 0, "lrank"], ["重排", L.rerank || 0, "lrr"],
+  ];
+  const recallMs = (L.hot || 0) + (L.icf || 0) + (L.tt || 0);
+  $("#lbar").innerHTML = segs.map(([n, v, c]) => {
+    const w = Math.max(2, v / L.total * 100);
+    return `<i class="${c}" style="width:${w}%" title="${n} ${fmtMs(v)}ms">${v / L.total > .14 ? n : ""}</i>`;
+  }).join("");
+  $("#llist").innerHTML = segs.map(([n, v, c]) =>
+    `<div><span class="dot ${c}"></span>${n} ${fmtMs(v)}ms</div>`).join("") +
+    `<div style="margin-top:4px;border-top:1px dashed var(--line);padding-top:4px">
+       召回合计 ${fmtMs(recallMs)}ms · 融合 ${fmtMs(L.fuse || 0)}ms</div>`;
+  $("#ltotal").innerHTML = `${fmtMs(L.total)} <small>ms 端到端（含 ${fmtMs(recallMs)}ms 召回）</small>`;
+}
+
+function renderFunnel(r) {
+  const C = r.channels;
+  const nodes = [
+    ["hot", "热度榜", C["热度"] ?? 0], ["icf", "ItemCF", C["ItemCF"] ?? 0],
+    ["tt", "双塔向量", C["双塔"] ?? 0], ["cold", "冷启注入", C["冷启"] ?? 0],
+    ["fuse", "融合候选", C["融合"] ?? 0], [null, "精排打分", C["融合"] ?? 0],
+    [null, "最终展示", r.items.length],
+  ];
+  $("#funnel").innerHTML = nodes.map(([cls, name, v], i) =>
+    (i > 0 ? '<span class="farrow">→</span>' : "") +
+    `<div class="fnode ${cls || ""}"><b>${v}</b><span>${name}</span></div>`).join("");
+}
+
+function renderDiversity(r) {
+  const b = r.diversity.before, a = r.diversity.after;
+  const on = state.mmr && state.lam > 0;
+  $("#dvg").innerHTML = `
+    <div class="dvbox"><h3>重排前 ILD / 类目覆盖</h3>
+      <div class="big">${b.ild.toFixed(3)}</div><div class="cap">覆盖率 ${(b.coverage * 100).toFixed(0)}%</div></div>
+    <div class="dvbox ${on ? "hl" : ""}"><h3>重排后 ILD / 类目覆盖</h3>
+      <div class="big">${a.ild.toFixed(3)}</div><div class="cap">覆盖率 ${(a.coverage * 100).toFixed(0)}% · ${on ? "MMR λ=" + state.lam.toFixed(2) : "未启用"}</div></div>`;
+}
+
+function renderResults(r) {
+  const mx = Math.max(...r.items.map(i => i.score || 0), 1e-9);
+  $("#rGrid").innerHTML = r.items.map((it, idx) => `
+    <div class="mcard" onclick="openItem(${it.item})">
+      <div class="rk">${idx + 1}</div>
+      ${it.cold ? '<span class="coldflag">❄ 冷启动</span>' : ""}
+      <div class="t">${esc(it.title)}</div>
+      <div class="g">${it.genres.split("|").slice(0, 4).map(g => `<span class="gtag">${esc(g)}</span>`).join("")}</div>
+      <div class="why">${it.why.map(w =>
+        `<i class="w-${{"热度":"hot","ItemCF":"icf","双塔":"tt","冷启":"cold","内容相似":"tt"}[w] || "tt"}">${esc(w)}</i>`).join("")}</div>
+      <div class="sbar"><i style="width:${Math.max(4, (it.score || 0) / mx * 100)}%"></i></div>
+      <div class="mrow">
+        <span>pCTR <b>${(it.score * 100).toFixed(1)}%</b>${it.cvr != null ? ` · pCVR <b>${(it.cvr * 100).toFixed(1)}%</b>` : ""}</span>
+        <span class="star">${star(it.mean_rating)} <b>${it.mean_rating}</b> (${it.n_users})</span>
+      </div>
+    </div>`).join("");
+  // 重排前后对比
+  const show = state.mmr && state.lam > 0;
+  $("#cmpWrap").style.display = show ? "grid" : "none";
+  if (show) {
+    const pos = new Map(r.items.map((x, i) => [x.item, i]));
+    $("#cmpBefore").innerHTML = r.before.slice(0, 10).map((it, i) => `
+      <li><span class="n">${i + 1}</span><span class="tt2">${esc(it.title)}</span>
+        <span class="sc">${(it.score * 100).toFixed(1)}%</span></li>`).join("");
+    $("#cmpAfter").innerHTML = r.items.slice(0, 10).map((it, i) => {
+      const old = r.before.findIndex(b => b.item === it.item);
+      const d = old - i;
+      return `<li><span class="n">${i + 1}</span><span class="tt2">${esc(it.title)}</span>
+        ${old >= 0 && d !== 0 ? `<span class="${d > 0 ? "up" : "down"}">${d > 0 ? "↑" + d : "↓" + (-d)}</span>` : ""}
+        <span class="sc">${(it.score * 100).toFixed(1)}%</span></li>`;
+    }).join("");
+  }
+}
+
+/* ---------- 相似内容模态框 ---------- */
+async function openItem(iid) {
+  const mask = $("#modalMask"), box = $("#modalBox");
+  mask.classList.add("show");
+  box.innerHTML = `<div class="loading"><span class="spin"></span>加载中…</div>`;
+  try {
+    const [sim, det] = await Promise.all([
+      api(`/api/item/${iid}/similar?k=9`), api(`/api/item/${iid}`)]);
+    const it = det;
+    box.innerHTML = `
+      <span class="close" onclick="closeModal()">✕</span>
+      <h3>「看了又看」 · ${esc(it.title)}</h3>
+      <div class="msub">基于内容语义向量（bge-small，余弦相似度 Top-9）· 编号 #${it.item}${it.pop_rank ? ` · 全库热度第 ${it.pop_rank} 名` : ""}</div>
+      <div class="mstats">
+        <span class="chip">口碑 <b>${star(it.mean_rating)} ${it.mean_rating}</b></span>
+        <span class="chip">质量分 <b>${it.quality}</b></span>
+        <span class="chip">覆盖用户 <b>${it.n_users}</b></span>
+        ${it.cold ? '<span class="chip" style="color:var(--cold)">❄ 冷启动物品</span>' : ""}
+      </div>
+      <div class="sgrid">${sim.items.map(s => `
+        <div class="scard" onclick="openItem(${s.item})">
+          <div class="t">${esc(s.title)}</div>
+          <div class="sim">相似度 ${(s.score * 100).toFixed(1)}%</div>
+          <div class="g">${esc(s.genres)}</div>
+        </div>`).join("")}</div>`;
+  } catch (err) { box.innerHTML = `<div class="empty">加载失败：${esc(err.message)}</div>`; }
+}
+function closeModal() { $("#modalMask").classList.remove("show"); }
+$("#modalMask").addEventListener("click", (e) => { if (e.target === e.currentTarget) closeModal(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+/* ---------- 控件事件 ---------- */
+$("#modelSeg").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  $("#modelSeg").querySelectorAll("button").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); state.model = b.dataset.m; recommend();
+});
+$("#topnR").addEventListener("input", (e) => { state.topn = +e.target.value; $("#topnV").textContent = state.topn; });
+$("#topnR").addEventListener("change", recommend);
+$("#mmrSw").addEventListener("click", () => {
+  state.mmr = !state.mmr;
+  $("#mmrSw").classList.toggle("on", state.mmr);
+  $("#lamR").disabled = !state.mmr;
+  recommend();
+});
+$("#lamR").addEventListener("input", (e) => { state.lam = +e.target.value; $("#lamV").textContent = state.lam.toFixed(2); });
+$("#lamR").addEventListener("change", recommend);
+$("#coldR").addEventListener("input", (e) => { state.cold = +e.target.value; $("#coldV").textContent = state.cold; });
+$("#coldR").addEventListener("change", recommend);
+$("#goBtn").addEventListener("click", recommend);
+$("#randBtn").addEventListener("click", () => {
+  const n = state.bootstrap.num_users;
+  selectUser(Math.floor(Math.random() * n));
+});
+
+/* ---------- 启动 ---------- */
+(async function init() {
+  try {
+    state.bootstrap = await api("/api/bootstrap");
+    $("#sUsers").textContent = state.bootstrap.num_users.toLocaleString();
+    $("#sItems").textContent = state.bootstrap.num_items.toLocaleString();
+    $("#sCold").textContent = state.bootstrap.num_cold;
+    renderUserList();
+    selectUser(7);   // 与 CLI demo 同一个默认用户
+  } catch (err) {
+    toast("初始化失败: " + err.message);
+    $("#rGrid").innerHTML = `<div class="empty">无法连接 API，请确认 webapp/server.py 正在运行</div>`;
+  }
+})();
+</script>
+</body>
+</html>
