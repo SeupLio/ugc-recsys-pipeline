@@ -39,6 +39,14 @@ from recsys.data.torch_data import build_batch, load_processed  # noqa: E402
 from recsys.models.rank import DINRanker, DeepFMRanker, ESMM, RankConfig  # noqa: E402
 from recsys.recall.collaborative import ItemCF, PopularityRecall  # noqa: E402
 from recsys.rerank.mmr import mmr_rerank  # noqa: E402
+from recsys.serving.cache import CandidateCache  # noqa: E402
+from recsys.serving.experiment import Experiments  # noqa: E402
+from recsys.serving.feedback import EventLog  # noqa: E402
+from recsys.serving.guardrails import ExposureHistory, GuardContext, Guardrails  # noqa: E402
+from recsys.serving.metrics import DriftDetector, Registry  # noqa: E402
+from recsys.serving.registry import ModelRegistry  # noqa: E402
+
+import uuid  # noqa: E402
 
 log = get_logger("web_demo")
 
@@ -117,6 +125,48 @@ class RecSysState:
             m.eval()
             self.models[name] = m
         self._lock = threading.Lock()
+
+        # ================= 生产化运行栈（serving 包） =================
+        # 护栏：质量门槛（i_score_decay，冷启豁免）+ 频控 + 已看/重复过滤
+        q_stat = self.item_stat
+        self.guardrails = Guardrails(
+            min_quality=2.0,
+            quality_of=lambda i: q_stat.get(int(i), {}).get("quality", 0.0),
+            cold_items=self.cold_set,
+            freq_cap=3, freq_window_s=600.0,
+            max_exposure_rounds=3, exposure_dampen=0.5)
+        self.exposure = ExposureHistory(window_requests=5)
+        self._freq: dict[int, dict] = {}          # uid -> GuardContext.freq_window（跨请求持久）
+        self.cand_cache = CandidateCache(capacity=512, ttl_s=120.0)
+
+        # 反馈闭环：事件流落盘 data/feedback/events.jsonl（进程重启可回放）
+        fb_dir = ROOT / "data" / "feedback"
+        fb_dir.mkdir(parents=True, exist_ok=True)
+        self.events = EventLog(path=fb_dir / "events.jsonl")
+
+        # 分层实验：rank_model 层 control=生产模型 / esmm / deepfm
+        self.experiments = Experiments({
+            "rank_model": {"salt": "L1-rank", "buckets": 100,
+                           "arms": {"control": 50, "esmm": 25, "deepfm": 25}}})
+
+        # 模型注册表：三个精排模型注册，din 经 staging 验证后首发上线
+        self.registry = ModelRegistry(path=fb_dir / "registry.json")
+        for nm, auc in [("din", 0.7295), ("esmm", 0.7194), ("deepfm", 0.7037)]:
+            try:
+                self.registry.register(
+                    nm, weights=f"checkpoints/rank_{nm}.pt",
+                    metrics={"auc_offline": auc})
+            except Exception:  # 已注册（重启场景），幂等
+                pass
+        if self.registry.production() is None:
+            self.registry.to_staging("din")
+            self.registry.activate("din", note="服务首发上线")
+
+        # 可观测性：延迟分位 + 分数漂移检测
+        self.metrics = Registry()
+        self.drift = DriftDetector(name="rank_score", baseline_n=100, window=100)
+        self._started_at = time.time()
+
         log.info("启动完成: %.1fs（%d 用户 / %d 物品 / %d 冷启动物品）",
                  time.perf_counter() - t0, self.num_users, self.num_items, len(self.cold_set))
 
@@ -214,42 +264,60 @@ class RecSysState:
             } for i in reversed(hist_iids)],
         }
 
-    def recommend(self, uid: int, model: str = "din", topn: int = 10,
+    def recommend(self, uid: int, model: str = "auto", topn: int = 10,
                   lam: float = 0.7, rerank: bool = True, cold_quota: int = 0) -> dict:
         d = self.data
         if not (0 <= uid < self.num_users):
             return {"error": "bad user"}
-        model = model if model in self.models else "din"
         topn = max(3, min(int(topn), 20))
         lam = max(0.0, min(float(lam), 1.0))
         cold_quota = max(0, min(int(cold_quota), 10))
         seen = set(int(x) for x in d.seq_mat[uid].tolist() if x >= 0)
+        request_id = uuid.uuid4().hex[:12]
 
-        # —— 召回三路（全部预构建，逐路计时）——
+        # —— 实验分桶：auto 模式按哈希分桶定模型，control 走注册表生产模型
+        if model == "auto":
+            arm = self.experiments.assignment(uid, "rank_model")
+            model = (self.registry.production() or "din") if arm == "control" else arm
+        else:
+            arm = f"manual:{model}"
+            model = model if model in self.models else "din"
+
+        # —— 召回三路（候选级缓存：同一用户 120s 内命中则跳过全部召回计算）——
+        cache_hit = False
         t = {}
-        t0 = time.perf_counter()
-        hot_ids = [i for i in self.hot.recall(topn=RECALL_TOPN, exclude=seen) if i not in seen]
-        t["hot"] = (time.perf_counter() - t0) * 1000
+        cached = self.cand_cache.get(uid)
+        if cached is not None:
+            hot_ids, icf_ids, tt_ids, why, fused, t = cached
+            cache_hit = True
+        else:
+            t0 = time.perf_counter()
+            hot_ids = [i for i in self.hot.recall(topn=RECALL_TOPN, exclude=seen) if i not in seen]
+            t["hot"] = (time.perf_counter() - t0) * 1000
 
-        t0 = time.perf_counter()
-        hist = sorted(seen)   # ItemCF.recall 接收 list（`if not hist` 判空）
-        icf_ids = [i for i in self.icf.recall(hist, topn=RECALL_TOPN) if i not in seen]
-        t["icf"] = (time.perf_counter() - t0) * 1000
+            t0 = time.perf_counter()
+            hist = sorted(seen)   # ItemCF.recall 接收 list（`if not hist` 判空）
+            icf_ids = [i for i in self.icf.recall(hist, topn=RECALL_TOPN) if i not in seen]
+            t["icf"] = (time.perf_counter() - t0) * 1000
 
-        t0 = time.perf_counter()
-        scores = self.item_emb @ self.user_emb[uid]
-        scores[list(seen)] = -np.inf
-        cand = np.argpartition(-scores, RECALL_TOPN)[: RECALL_TOPN]
-        tt_ids = [int(i) for i in cand[np.argsort(-scores[cand])]]
-        t["tt"] = (time.perf_counter() - t0) * 1000
+            t0 = time.perf_counter()
+            scores = self.item_emb @ self.user_emb[uid]
+            scores[list(seen)] = -np.inf
+            cand = np.argpartition(-scores, RECALL_TOPN)[: RECALL_TOPN]
+            tt_ids = [int(i) for i in cand[np.argsort(-scores[cand])]]
+            t["tt"] = (time.perf_counter() - t0) * 1000
 
-        # —— 融合（去重合并，记录通道归因）——
-        t0 = time.perf_counter()
-        why: dict[int, list] = {}
-        for ch, ids in [("热度", hot_ids[:20]), ("ItemCF", icf_ids[:30]), ("双塔", tt_ids[:40])]:
-            for i in ids:
-                why.setdefault(int(i), []).append(ch)
-        fused = list(why.keys())[:FUSE_TOPN]
+            # —— 融合（去重合并，记录通道归因）——
+            t0 = time.perf_counter()
+            why = {}
+            for ch, ids in [("热度", hot_ids[:20]), ("ItemCF", icf_ids[:30]), ("双塔", tt_ids[:40])]:
+                for i in ids:
+                    why.setdefault(int(i), []).append(ch)
+            fused = list(why.keys())[:FUSE_TOPN]
+            t["fuse"] = (time.perf_counter() - t0) * 1000
+            self.cand_cache.put(
+                uid, (hot_ids, icf_ids, tt_ids, why, fused, dict(t)),
+                recall_cost_ms=t.get("hot", 0) + t.get("icf", 0) + t.get("tt", 0) + t.get("fuse", 0))
 
         # 冷启扶持：无行为物品按双塔分数注入
         cold_added = []
@@ -260,7 +328,24 @@ class RecSysState:
             for i in cold_added:
                 why.setdefault(i, []).append("冷启")
             fused = [i for i in fused if i not in cold_added] + cold_added
-        t["fuse"] = (time.perf_counter() - t0) * 1000
+
+        # —— 安全护栏：频控 / 曝光饱和 / 重复 / 质量门槛（冷启豁免）——
+        # 若拦得过狠（同用户高频刷新场景），自动降级：跳过频控/曝光规则保供给
+        t0 = time.perf_counter()
+        ctx = GuardContext(
+            user_id=uid, seen=seen,
+            recent_exposure=self.exposure.exposure_counts(uid),
+            freq_window=self._freq.setdefault(uid, {}),
+            now=time.time(), request_id=request_id)
+        gr = self.guardrails.apply(fused, ctx)
+        guardrail_relaxed = False
+        if len(gr.passed) < max(5, topn):
+            gr = self.guardrails.apply(
+                fused, ctx, enable=("seen", "blocklist", "quality", "dedup"))
+            guardrail_relaxed = True
+        fused = gr.passed
+        t["guardrail"] = (time.perf_counter() - t0) * 1000
+
         channels = {"热度": len(hot_ids), "ItemCF": len(icf_ids), "双塔": len(tt_ids),
                     "冷启": len(cold_added), "融合": len(fused)}
 
@@ -307,6 +392,22 @@ class RecSysState:
         t["rerank"] = (time.perf_counter() - t0) * 1000
         t["total"] = sum(t.values())
 
+        # —— 反馈闭环：曝光事件入账 + 跨请求曝光记忆（防老面孔霸屏）——
+        for pos, iid in enumerate(final):
+            self.events.log(request_id, uid, int(iid), pos, "impression",
+                            model=model, arm=arm, latency_ms=t["total"])
+        self.exposure.record(uid, final)
+
+        # —— 可观测性：延迟分位 + 分数漂移检测 ——
+        self.metrics.incr("requests")
+        for stage in ("hot", "icf", "tt", "fuse", "guardrail", "rank", "rerank"):
+            if stage in t:
+                self.metrics.observe_ms(stage, t[stage])
+        self.metrics.observe_ms("total", t["total"])
+        if final:
+            self.drift.push(float(np.mean([score_map.get(i, 0.0) for i in final[:5]])))
+            self.drift.check()
+
         def cards(ids):
             return [self._item_card(i, score=score_map.get(i), cvr=cvr_map.get(i),
                                     why=why.get(i, [])) for i in ids]
@@ -327,11 +428,64 @@ class RecSysState:
         return {
             "user": uid, "model": model, "topn": topn, "lam": lam,
             "rerank": bool(rerank), "cold_quota": cold_quota,
+            "request_id": request_id, "arm": arm, "cache_hit": cache_hit,
+            "guardrail_relaxed": guardrail_relaxed,
             "items": cards(final), "before": cards(before),
             "diversity": {"before": diversity(before), "after": diversity(final)},
             "channels": channels,
+            "guardrail": {"blocked": gr.blocked_count, "trail": gr.trail(5)},
             "latency": {k: round(v, 2) for k, v in t.items()},
         }
+
+    # ---------------- 生产运维 API ----------------
+
+    def log_feedback(self, request_id: str, user: int, item: int,
+                     pos: int, event: str) -> dict:
+        """用户点击/点赞/点踩上报（幂等）。行为变化 → 候选缓存失效。"""
+        ok = self.events.log(request_id, int(user), int(item), int(pos), event)
+        if ok and event in ("click", "like", "dislike"):
+            self.cand_cache.invalidate_user(int(user))
+            self.metrics.incr(f"feedback_{event}")
+        return {"logged": ok}
+
+    def feedback_report(self) -> dict:
+        return {
+            "online_ctr": self.events.online_ctr(),
+            "position_bias": self.events.position_bias(10),
+            "snips": self.events.snips(),
+            "arms": self.events.arm_report(),
+            "log": self.events.stats(),
+        }
+
+    def ops_report(self) -> dict:
+        m = self.metrics.snapshot()
+        return {
+            "uptime_s": round(time.time() - self._started_at, 1),
+            "metrics": m,
+            "cache": self.cand_cache.report(),
+            "drift": self.drift.status(),
+            "registry": {"production": self.registry.production(),
+                         "models": self.registry.list()},
+            "registry_history": self.registry.history()[-6:],
+            "feedback": self.events.stats(),
+        }
+
+    def experiment_info(self, uid: int) -> dict:
+        sample = list(range(0, self.num_users, 7))
+        return {
+            "layer": "rank_model",
+            "arms": {"control": 50, "esmm": 25, "deepfm": 25},
+            "your_arm": self.experiments.assignment(uid, "rank_model"),
+            "your_model": (self.registry.production() or "din"),
+            "traffic_split": self.experiments.layer_report("rank_model", sample),
+        }
+
+    def registry_activate(self, name: str) -> dict:
+        """上线指定模型（须先过 staging 影子验证 → activate 自动流转）。"""
+        self.registry.to_staging(name)
+        self.registry.activate(name, note="web 控制台切换")
+        return {"production": self.registry.production(),
+                "models": self.registry.list()}
 
     def similar(self, iid: int, k: int = 8) -> dict:
         if not (0 <= iid < self.num_items):
@@ -394,7 +548,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(STATE.user_profile(int(u.path.rsplit("/", 1)[1])))
             elif u.path == "/api/recommend":
                 self._json(STATE.recommend(
-                    uid=int(q.get("user", 7)), model=q.get("model", "din"),
+                    uid=int(q.get("user", 7)), model=q.get("model", "auto"),
                     topn=int(q.get("topn", 10)), lam=float(q.get("lam", 0.7)),
                     rerank=q.get("rerank", "1") not in ("0", "false"), cold_quota=int(q.get("cold", 0))))
             elif u.path.startswith("/api/item/"):
@@ -404,10 +558,52 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(STATE.similar(iid, k=min(int(q.get("k", 8)), 12)))
                 else:
                     self._json(STATE.item_detail(iid))
+            elif u.path == "/api/ops":
+                self._json(STATE.ops_report())
+            elif u.path == "/api/ops/prometheus":
+                body = STATE.metrics.expose_prometheus().encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            elif u.path == "/api/experiment":
+                self._json(STATE.experiment_info(int(q.get("user", 0))))
+            elif u.path == "/api/feedback/report":
+                self._json(STATE.feedback_report())
+            elif u.path == "/api/health":
+                self._json({"status": "ok" if STATE else "starting",
+                            "uptime_s": round(time.time() - STATE._started_at, 1),
+                            "drift": STATE.drift.status()["drift"],
+                            "models_loaded": list(STATE.models)})
             else:
                 self._json({"error": "not found"}, 404)
         except Exception as e:  # noqa: BLE001
             log.exception("API %s 失败", u.path)
+            STATE.metrics.incr("errors")
+            self._json({"error": str(e)}, 500)
+
+    def do_POST(self):
+        u = urlparse(self.path)
+        try:
+            n = int(self.headers.get("Content-Length", 0) or 0)
+            body = json.loads(self.rfile.read(n) or b"{}")
+            if u.path == "/api/feedback":
+                self._json(STATE.log_feedback(
+                    body.get("request_id", ""), int(body.get("user", 0)),
+                    int(body.get("item", 0)), int(body.get("pos", 0)),
+                    str(body.get("event", "click"))))
+            elif u.path == "/api/registry/activate":
+                self._json(STATE.registry_activate(str(body.get("name", ""))))
+            elif u.path == "/api/registry/rollback":
+                name = STATE.registry.rollback()
+                self._json({"rolled_back_to": name,
+                            "production": STATE.registry.production()})
+            else:
+                self._json({"error": "not found"}, 404)
+        except Exception as e:  # noqa: BLE001
+            log.exception("POST %s 失败", u.path)
+            STATE.metrics.incr("errors")
             self._json({"error": str(e)}, 500)
 
 

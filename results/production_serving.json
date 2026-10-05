@@ -1,0 +1,301 @@
+{
+ "requests": 600,
+ "cache_hits": 41,
+ "simulated_feedback": {
+  "clicks": 464,
+  "likes": 160,
+  "dislikes": 42
+ },
+ "ops": {
+  "uptime_s": 18.3,
+  "metrics": {
+   "uptime_s": 18.3,
+   "counters": {
+    "requests": 594,
+    "feedback_click": 464,
+    "feedback_like": 160,
+    "feedback_dislike": 42
+   },
+   "latency": {
+    "hot": {
+     "count": 594,
+     "p50": 0.5,
+     "p95": 0.95,
+     "p99": 0.99
+    },
+    "icf": {
+     "count": 594,
+     "p50": 11.78,
+     "p95": 19.33,
+     "p99": 20.3
+    },
+    "tt": {
+     "count": 594,
+     "p50": 0.5,
+     "p95": 0.95,
+     "p99": 0.99
+    },
+    "fuse": {
+     "count": 594,
+     "p50": 0.5,
+     "p95": 0.95,
+     "p99": 0.99
+    },
+    "guardrail": {
+     "count": 594,
+     "p50": 0.5,
+     "p95": 0.95,
+     "p99": 0.99
+    },
+    "rank": {
+     "count": 594,
+     "p50": 1.61,
+     "p95": 4.7,
+     "p99": 8.77
+    },
+    "rerank": {
+     "count": 594,
+     "p50": 3.49,
+     "p95": 4.85,
+     "p99": 4.97
+    },
+    "total": {
+     "count": 594,
+     "p50": 14.16,
+     "p95": 20.3,
+     "p99": 44.06
+    }
+   },
+   "qps": {
+    "requests": 32.459
+   }
+  },
+  "cache": {
+   "hit_rate": 0.0683,
+   "hits": 41,
+   "misses": 559,
+   "expired": 0,
+   "evictions": 0,
+   "entries": 95,
+   "saved_ms_total": 389.9
+  },
+  "drift": {
+   "metric": "rank_score",
+   "psi": 0.4414,
+   "drift": true,
+   "state": "monitoring",
+   "threshold": 0.25
+  },
+  "registry": {
+   "production": "din",
+   "models": [
+    {
+     "name": "deepfm",
+     "weights": "checkpoints/rank_deepfm.pt",
+     "metrics": {
+      "auc_offline": 0.7037
+     },
+     "stage": "none",
+     "shadow": false,
+     "created_at": 1791027691.3505745,
+     "activated_at": null
+    },
+    {
+     "name": "din",
+     "weights": "checkpoints/rank_din.pt",
+     "metrics": {
+      "auc_offline": 0.7295
+     },
+     "stage": "production",
+     "shadow": false,
+     "created_at": 1791027691.182828,
+     "activated_at": 1791028974.4655902
+    },
+    {
+     "name": "esmm",
+     "weights": "checkpoints/rank_esmm.pt",
+     "metrics": {
+      "auc_offline": 0.7194
+     },
+     "stage": "archived",
+     "shadow": false,
+     "created_at": 1791027691.2457683,
+     "activated_at": 1791028974.300985
+    }
+   ]
+  },
+  "registry_history": [
+   {
+    "ts": 1791028065.3123298,
+    "model": "din",
+    "from": "archived",
+    "to": "production",
+    "note": "自动回滚"
+   },
+   {
+    "ts": 1791028974.1023176,
+    "model": "esmm",
+    "from": "archived",
+    "to": "staging",
+    "note": "shadow 验证"
+   },
+   {
+    "ts": 1791028974.2123418,
+    "model": "din",
+    "from": "production",
+    "to": "archived",
+    "note": "被 esmm 替换"
+   },
+   {
+    "ts": 1791028974.300986,
+    "model": "esmm",
+    "from": "staging",
+    "to": "production",
+    "note": "演练：ESMM 上线"
+   },
+   {
+    "ts": 1791028974.3798985,
+    "model": "esmm",
+    "from": "production",
+    "to": "archived",
+    "note": "被 din 替换"
+   },
+   {
+    "ts": 1791028974.4655917,
+    "model": "din",
+    "from": "archived",
+    "to": "production",
+    "note": "自动回滚"
+   }
+  ],
+  "feedback": {
+   "events": 13192,
+   "dropped": 0,
+   "path": "/run/csi/mount-root/oss/79518b664a0b4bc7c1cbf160bcbd163a/agent-model/6ab9244e514eab8cc02e8153/tmp/ugc-recsys-pipeline/data/feedback/events.jsonl"
+  }
+ },
+ "feedback": {
+  "online_ctr": {
+   "impressions": 11860,
+   "clicks": 928,
+   "ctr": 0.0782
+  },
+  "position_bias": [
+   {
+    "pos": 0,
+    "imps": 1188,
+    "ctr": 0.4007
+   },
+   {
+    "pos": 1,
+    "imps": 1188,
+    "ctr": 0.1869
+   },
+   {
+    "pos": 2,
+    "imps": 1188,
+    "ctr": 0.0673
+   },
+   {
+    "pos": 3,
+    "imps": 1188,
+    "ctr": 0.0556
+   },
+   {
+    "pos": 4,
+    "imps": 1188,
+    "ctr": 0.0337
+   },
+   {
+    "pos": 5,
+    "imps": 1184,
+    "ctr": 0.0152
+   },
+   {
+    "pos": 6,
+    "imps": 1184,
+    "ctr": 0.0152
+   },
+   {
+    "pos": 7,
+    "imps": 1184,
+    "ctr": 0.0051
+   },
+   {
+    "pos": 8,
+    "imps": 1184,
+    "ctr": 0.0017
+   },
+   {
+    "pos": 9,
+    "imps": 1184,
+    "ctr": 0.0
+   }
+  ],
+  "snips": 0.0091,
+  "arms": {
+   "esmm": {
+    "users": 72,
+    "impressions": 1870,
+    "clicks": 160,
+    "ctr": 0.0856,
+    "latency_p50_ms": 16.0
+   },
+   "manual:din": {
+    "users": 54,
+    "impressions": 1100,
+    "clicks": 90,
+    "ctr": 0.0818,
+    "latency_p50_ms": 18.7
+   },
+   "deepfm": {
+    "users": 83,
+    "impressions": 2300,
+    "clicks": 180,
+    "ctr": 0.0783,
+    "latency_p50_ms": 17.2
+   },
+   "manual:deepfm": {
+    "users": 56,
+    "impressions": 1140,
+    "clicks": 88,
+    "ctr": 0.0772,
+    "latency_p50_ms": 17.9
+   },
+   "control": {
+    "users": 157,
+    "impressions": 4190,
+    "clicks": 312,
+    "ctr": 0.0745,
+    "latency_p50_ms": 18.3
+   },
+   "manual:esmm": {
+    "users": 61,
+    "impressions": 1260,
+    "clicks": 98,
+    "ctr": 0.0778,
+    "latency_p50_ms": 17.2
+   }
+  }
+ },
+ "experiment": {
+  "layer": "rank_model",
+  "arms": {
+   "control": 50,
+   "esmm": 25,
+   "deepfm": 25
+  },
+  "your_arm": "control",
+  "your_model": "din",
+  "traffic_split": {
+   "control": 0.5029,
+   "esmm": 0.2677,
+   "deepfm": 0.2294
+  }
+ },
+ "registry_drill": {
+  "activated": "esmm",
+  "rolled_back_to": "din"
+ },
+ "prometheus_head": "recsys_feedback_click_total 464\nrecsys_feedback_dislike_total 42\nrecsys_feedback_like_total 160\nrecsys_requests_total 594\nrecsys_latency_hot_count 594\nrecsys_latency_hot{quantile=\"0.5\"} 0.50\nrecsys_latency_hot{quantile=\"0.95\"} 0.95\nrecsys_latency_hot{quantile=\"0.99\"} 0.99"
+}

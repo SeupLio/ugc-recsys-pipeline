@@ -17,8 +17,9 @@
 - **内容质量与意图**：贝叶斯平滑质量分（held-out AUC 0.728 vs 热度 0.619）+ 用户意图画像 → 意图标签召回（新内容 Recall@50 0.640）+ 质量感知重排
 - **难负例挖掘**：召回 Top-K 难负例混入训练，并暴露 baseline 在真实曝光分布下 AUC 仅 0.517 的关键事实
 - **在线模拟与 A/B 框架**：行为模拟器（含先验校准）、SRM 校验、用户级 bootstrap、CUPED 方差削减、MDE 功效分析
+- **生产化 serving 栈**：`src/recsys/serving/` 七模块——在线特征存储（快照+TTL）、安全护栏（频控/曝光饱和/质量门槛，含**过严自动降级**）、候选缓存（LRU+TTL+命中率统计）、分层实验（哈希正交分桶）、可观测性（延迟分位/PSI 漂移/**Prometheus 格式**）、反馈闭环（曝光-点击事件流/位置偏差/**SNIPS 去偏**）、模型注册表（staging 流转护栏/原子切换/一键回滚），Web Demo 全部在线可用
 - **SQL 特征工程**：画像口径全部写在可读的 DuckDB SQL（CTE + 窗口函数 + 时间衰减）里，另有等价 pandas 兜底实现
-- **53 个 pytest 用例**：指标与 sklearn 对拍、训练/测试隔离校验、冷启动物品隔离校验、attention masking 行为校验、A/B 统计工具校验
+- **80 个 pytest 用例**：指标与 sklearn 对拍、训练/测试隔离校验、冷启动物品隔离校验、attention masking 行为校验、A/B 统计工具校验、生产化模块（护栏/缓存/实验/指标/反馈/注册表）校验
 
 ---
 
@@ -359,7 +360,8 @@ python scripts/11_content_quality.py        # 内容质量分 + 用户意图画�
 python scripts/12_hard_negative.py          # 难负例挖掘（双口径评测）
 python scripts/13_intent_rerank.py          # 意图召回 + 质量感知重排
 python scripts/14_online_sim.py             # 在线模拟 + A/B 实验框架
-python -m pytest tests -q                   # 53 passed
+python scripts/15_production_serving.py     # 生产链路演练（600 请求回放 + 模型切换/回滚）
+python -m pytest tests -q                   # 80 passed
 ```
 
 一键复现：`python scripts/run_all.py`。所有阶段产物落在 `data/processed/`（中间数据）与 `results/`（指标 JSON），图表由 `scripts/10_make_figures.py` 生成。
@@ -382,6 +384,13 @@ open http://127.0.0.1:8000/          # 默认 127.0.0.1:8000，--port 可改
 - 每张推荐卡片带**召回通道归因徽标**（热度 / ItemCF / 双塔 / 冷启）
 - 点击卡片弹出「看了又看」——bge 内容语义向量余弦 Top-9
 
+**生产运维面板**（页面底部，`src/recsys/serving/` 七模块的在线驾驶舱）：
+
+- 📡 可观测性：请求总量、p50/p95/p99 延迟、错误计数、候选缓存命中率、分数分布 PSI 漂移告警，`/api/ops/prometheus` 输出标准 Prometheus 文本格式
+- 🧪 分层实验：rank_model 层 50/25/25 分桶（哈希稳定、正交），展示当前用户所在 arm 与各 arm 在线 CTR
+- 🗂 模型注册表：staging 影子验证 → production 流转护栏（未验证拒绝上线）、原子切换、**一键回滚**、切换历史审计
+- 👍/👎 反馈闭环：点赞/点踩/点击「看了又看」全部进 JSONL 事件流（`data/feedback/events.jsonl`），实时统计位置偏差曲线与 SNIPS 去偏 CTR
+
 ![web demo](assets/web_demo.png)
 
 > 脚本依赖顺序：`11` 依赖 `02`（内容向量），`12`/`13` 依赖 `03`（双塔向量）与 `11`（质量分/意图），`14` 依赖 `03` 与 `11`。`run_all.py` 已按此顺序编排。
@@ -402,8 +411,9 @@ open http://127.0.0.1:8000/          # 默认 127.0.0.1:8000，--port 可改
 │   ├── rerank/         mmr.py（MMR · 类目打散）
 │   ├── growth/         lookalike.py（Lookalike · pLTV）
 │   ├── coldstart/      content.py（语义向量 · 零样本标签 · 质量分 · 意图画像）
+│   ├── serving/        生产化七模块（特征存储/护栏/缓存/分层实验/指标/反馈闭环/模型注册表）
 │   └── eval/           metrics.py（手写指标，含 GAUC / ILD / Lift）
-├── tests/              53 个单测（指标对拍 + 泄漏护栏 + A/B 统计工具）
+├── tests/              80 个单测（指标对拍 + 泄漏护栏 + A/B 统计 + 生产化模块）
 ├── webapp/             本地 Web 交互 Demo（server.py 零依赖后端 + static/ 前端）
 ├── docs/               系统设计说明
 └── results/            各阶段 JSON 指标
@@ -418,7 +428,7 @@ open http://127.0.0.1:8000/          # 默认 127.0.0.1:8000，--port 可改
 1. **难负例的收益尚未回流到主链路**：`12_hard_negative.py` 证明了 hard negative 能把难负例口径 AUC 从 0.517 提到 0.742，但主链路（`05_train_rank.py`）目前仍只用流行度负采样训练，两套口径的模型还没有合并成一套；
 2. **双塔没有打过 ItemCF**：小物空间下 Embedding 侧仍有调参空间（更高维 + hard negative + 更长训练）；
 3. **缺真正的多模态**：内容只有标题文本向量，没有图像 / 音频塔；游戏社区场景里封面图、视频帧才是大头；
-4. **在线模拟不是真实用户**：`14_online_sim.py` 的点击行为由拟合出的逻辑回归生成，它能验证「统计框架是否正确」（SRM/CUPED/MDE/bootstrap），但无法替代真实 A/B——模拟器的行为分布本身就是从历史数据学来的，不存在真正意义上的"新策略改变了用户行为"这一反馈回路；
+4. **反馈闭环有管道、无真实流量**：`serving/feedback.py` 已把曝光-点击事件流、位置偏差、SNIPS 去偏、分 arm 报表做成在线可用的闭环管道（Web Demo 中 👍/👎 实时进事件流），但 `15_production_serving.py` 演练用的点击仍是位置衰减合成的；`14_online_sim.py` 的行为模拟器同理——统计框架（SRM/CUPED/MDE）是真实可复用的，「新策略改变真实用户行为」的验证仍需真实 A/B；
 5. **质量降权的覆盖率损失没有闭环优化**：α=0.3 时目录覆盖率掉了 11.6pt（0.875→0.759），当前只是把权衡摆出来，没有做多目标优化去自动找帕累托前沿上的 α；
 6. **增长模块规模偏小**：KNN 人群包只扩到 55 人，真实场景应按 DAU 量级重做。
 

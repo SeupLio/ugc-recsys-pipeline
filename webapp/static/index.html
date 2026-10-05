@@ -178,6 +178,51 @@ header .sub { font-size: 12px; color: var(--sub); }
   transition: .3s; z-index: 200; opacity: 0; }
 .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
 .empty { color: var(--sub); text-align: center; padding: 50px 0; font-size: 13px; }
+
+/* ---------- 卡片反馈按钮 ---------- */
+.mrow .fb { display: flex; gap: 4px; }
+.mrow .fb i { font-style: normal; cursor: pointer; font-size: 14px; opacity: .55;
+  transition: .15s; padding: 0 3px; }
+.mrow .fb i:hover { opacity: 1; transform: scale(1.25); }
+.mrow code { background: #0d1428; padding: 1px 5px; border-radius: 5px;
+  font-family: ui-monospace, monospace; font-size: 11px; color: var(--acc2); }
+.hint code { background: #0d1428; padding: 0 4px; border-radius: 4px;
+  font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--acc2); }
+a { color: var(--acc2); text-decoration: none; }
+
+/* ---------- 生产运维面板 ---------- */
+.opscards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px; margin: 10px 0; }
+.opscard { background: #0d1428; border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; }
+.opscard span { font-size: 11px; color: var(--sub); }
+.opscard b { font-size: 16px; font-weight: 700; }
+.opscard i { font-size: 10.5px; color: var(--sub); font-style: normal; }
+.opsgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.opscol { background: #0d1428; border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.opscol h3 { font-size: 12.5px; color: var(--txt); margin-bottom: 8px; font-weight: 600; }
+.optable { width: 100%; border-collapse: collapse; font-size: 12px; }
+.optable th { text-align: left; color: var(--sub); font-weight: 500; font-size: 11px;
+  padding: 3px 6px 6px 0; border-bottom: 1px solid var(--line); }
+.optable td { padding: 5px 6px 5px 0; border-bottom: 1px solid #1a2340; }
+.regrow { display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border-radius: 8px; margin-bottom: 5px; background: #111a33; font-size: 12.5px; }
+.regrow.prod { border: 1px solid var(--green); background: rgba(52,211,153,.08); }
+.regrow .stage { font-size: 10.5px; padding: 1px 7px; border-radius: 99px;
+  background: var(--line); color: var(--sub); }
+.regrow.prod .stage { background: var(--green); color: #06281c; font-weight: 700; }
+.regrow .hint { flex: 1; }
+button.mini { background: var(--acc); color: #fff; border: 0; border-radius: 6px;
+  padding: 4px 10px; font-size: 11.5px; cursor: pointer; }
+button.mini.warn { background: transparent; border: 1px solid var(--hot); color: var(--hot);
+  margin-top: 6px; }
+button.mini:hover { filter: brightness(1.2); }
+.pbrow { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 12px; }
+.pbrow > span { width: 26px; color: var(--sub); font-family: ui-monospace, monospace; }
+.pbbar { flex: 1; height: 10px; background: #111a33; border-radius: 99px; overflow: hidden; }
+.pbbar i { display: block; height: 100%;
+  background: linear-gradient(90deg, var(--acc), var(--acc2)); border-radius: 99px; }
+.pbrow b { width: 48px; text-align: right; font-family: ui-monospace, monospace; font-size: 11.5px; }
 </style>
 </head>
 <body>
@@ -214,8 +259,9 @@ header .sub { font-size: 12px; color: var(--sub); }
     <div class="panel">
       <div class="ctrls">
         <div class="seg" id="modelSeg">
+          <button data-m="auto" class="on">🧪 分桶实验</button>
           <button data-m="deepfm">DeepFM</button>
-          <button data-m="din" class="on">DIN</button>
+          <button data-m="din">DIN</button>
           <button data-m="esmm">ESMM</button>
         </div>
         <div class="ctl">Top-N <input type="range" id="topnR" min="5" max="20" step="5" value="10"><b id="topnV">10</b></div>
@@ -246,12 +292,26 @@ header .sub { font-size: 12px; color: var(--sub); }
     <div class="panel">
       <div class="results-head">
         <h2>🎯 为用户 <span id="curUid">—</span> 生成的推荐</h2>
-        <span class="hint">点击卡片查看「看了又看」相似内容 · 徽标展示召回通道归因</span>
+        <span class="hint" id="reqInfo">点击卡片查看「看了又看」· 👍/👎 反馈会进入事件流</span>
       </div>
       <div class="grid" id="rGrid"><div class="empty">从左侧选择一个用户，点击「⚡ 推荐」</div></div>
       <div class="cmp" id="cmpWrap" style="display:none">
         <div class="panel"><h2>重排前 · 粯CTR 排序</h2><ol id="cmpBefore"></ol></div>
         <div class="panel"><h2>重排后 · MMR 多样性</h2><ol id="cmpAfter"></ol></div>
+      </div>
+    </div>
+
+    <!-- ============ 生产运维面板 ============ -->
+    <div class="panel" id="opsPanel">
+      <div class="results-head">
+        <h2>📡 生产运维面板（可观测性 / 实验分流 / 模型注册表 / 反馈闭环）</h2>
+        <span class="hint">每 5s 刷新 · <a href="/api/ops/prometheus" target="_blank">Prometheus 指标</a> · <a href="/api/health" target="_blank">健康检查</a></span>
+      </div>
+      <div class="opscards" id="opsCards"><div class="empty">等待数据…</div></div>
+      <div class="opsgrid">
+        <div class="opscol" id="opsRegistry"></div>
+        <div class="opscol" id="opsArms"></div>
+        <div class="opscol" id="opsPosBias"></div>
       </div>
     </div>
   </main>
@@ -266,12 +326,18 @@ header .sub { font-size: 12px; color: var(--sub); }
 <script>
 "use strict";
 const $ = (s) => document.querySelector(s);
-const state = { bootstrap: null, uid: null, profile: null, model: "din",
+const state = { bootstrap: null, uid: null, profile: null, model: "auto",
   topn: 10, mmr: true, lam: 0.7, cold: 0, lastResp: null, uShown: 40 };
 
 /* ---------- 工具 ---------- */
 async function api(path) {
   const r = await fetch(path);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
@@ -352,7 +418,16 @@ async function doRecommend() {
     if (r.error) { toast("推荐失败: " + r.error); return; }
     state.lastResp = r;
     $("#sLat").textContent = fmtMs(r.latency.total) + "ms";
+    const armTag = r.model === "auto" ? "" :
+      (r.arm === "manual:" + r.model
+        ? `手动 ${r.model}` : `分桶 ${r.arm} → ${r.model}`);
+    $("#reqInfo").innerHTML =
+      `请求 <code>${esc(r.request_id || "")}</code> · ${esc(armTag)} ` +
+      `${r.cache_hit ? '<span style="color:var(--green)">⚡候选缓存命中</span>' : "全量召回"}` +
+      ` · 护栏拦截 ${r.guardrail?.blocked ?? 0} 条` +
+      (r.guardrail_relaxed ? ' <span style="color:var(--gold)">（已降级：跳过频控/曝光规则保供给）</span>' : "");
     renderLatency(r); renderFunnel(r); renderDiversity(r); renderResults(r);
+    refreshOps();
   } catch (err) {
     $("#rGrid").innerHTML = `<div class="empty">😅 请求失败：${esc(err.message)}</div>`;
   }
@@ -412,8 +487,12 @@ function renderResults(r) {
       <div class="sbar"><i style="width:${Math.max(4, (it.score || 0) / mx * 100)}%"></i></div>
       <div class="mrow">
         <span>pCTR <b>${(it.score * 100).toFixed(1)}%</b>${it.cvr != null ? ` · pCVR <b>${(it.cvr * 100).toFixed(1)}%</b>` : ""}</span>
-        <span class="star">${star(it.mean_rating)} <b>${it.mean_rating}</b> (${it.n_users})</span>
+        <span class="fb">
+          <i onclick="fb(event,${it.item},${idx},'like')" title="点赞">👍</i>
+          <i onclick="fb(event,${it.item},${idx},'dislike')" title="不感兴趣">👎</i>
+        </span>
       </div>
+      <span class="star" style="display:block;margin-top:2px">${star(it.mean_rating)} <b>${it.mean_rating}</b> (${it.n_users})</span>
     </div>`).join("");
   // 重排前后对比
   const show = state.mmr && state.lam > 0;
@@ -438,6 +517,12 @@ async function openItem(iid) {
   const mask = $("#modalMask"), box = $("#modalBox");
   mask.classList.add("show");
   box.innerHTML = `<div class="loading"><span class="spin"></span>加载中…</div>`;
+  // 打开详情 = 一次隐式点击反馈（进事件流，闭环上报）
+  if (state.lastResp && state.lastResp.request_id && state.uid != null) {
+    const pos = state.lastResp.items.findIndex(x => x.item === iid);
+    if (pos >= 0) post("/api/feedback", { request_id: state.lastResp.request_id,
+      user: state.uid, item: iid, pos, event: "click" }).then(refreshOps).catch(() => {});
+  }
   try {
     const [sim, det] = await Promise.all([
       api(`/api/item/${iid}/similar?k=9`), api(`/api/item/${iid}`)]);
@@ -488,6 +573,100 @@ $("#randBtn").addEventListener("click", () => {
   selectUser(Math.floor(Math.random() * n));
 });
 
+/* ---------- 用户反馈（👍/👎/点击 → 事件流） ---------- */
+async function fb(ev, item, pos, event) {
+  ev.stopPropagation();
+  if (!state.lastResp || !state.lastResp.request_id) { toast("先执行一次推荐"); return; }
+  try {
+    const r = await post("/api/feedback", { request_id: state.lastResp.request_id,
+      user: state.uid, item, pos, event });
+    toast(r.logged ? `已记录「${event === "like" ? "👍 点赞" : "👎 不感兴趣"}」，候选缓存已失效`
+      : "该反馈已记录过（幂等去重）");
+    refreshOps();
+  } catch (err) { toast("反馈失败: " + err.message); }
+}
+
+/* ---------- 生产运维面板 ---------- */
+let opsTimer = null;
+async function refreshOps() {
+  try {
+    const [ops, fbr] = await Promise.all([
+      api("/api/ops"), api("/api/feedback/report")]);
+    let exp = null;
+    try { exp = await api(`/api/experiment?user=${state.uid ?? 0}`); } catch { }
+    renderOps(ops, fbr, exp);
+  } catch { /* 面板静默失败 */ }
+}
+function renderOps(ops, fbr, exp) {
+  const m = ops.metrics, lat = m.latency || {};
+  const drift = ops.drift || {};
+  const cards = [
+    ["总请求", m.counters?.requests ?? 0, "次"],
+    ["p50 / p95 / p99", `${lat.total?.p50 ?? "—"} / ${lat.total?.p95 ?? "—"} / ${lat.total?.p99 ?? "—"}`, "ms"],
+    ["候选缓存命中", ((ops.cache?.hit_rate ?? 0) * 100).toFixed(1), `%（省 ${ops.cache?.saved_ms_total ?? 0}ms 召回）`],
+    ["在线 CTR", ((fbr.online_ctr?.ctr ?? 0) * 100).toFixed(1), `%（${fbr.online_ctr?.clicks ?? 0}/${fbr.online_ctr?.impressions ?? 0}）`],
+    ["分数漂移 PSI", drift.psi ?? "—", drift.drift ? "⚠️ 已触发告警" : "正常"],
+    ["护栏/反馈/错误", `${m.counters?.feedback_like ?? 0}👍 ${m.counters?.feedback_dislike ?? 0}👎`, `err ${m.counters?.errors ?? 0}`],
+  ];
+  $("#opsCards").innerHTML = cards.map(c => `
+    <div class="opscard"><span>${c[0]}</span><b>${c[1]}</b><i>${c[2]}</i></div>`).join("");
+
+  // —— 实验分桶 ——
+  const reg = ops.registry || {};
+  const prod = reg.production ?? "—";
+  const armRows = Object.entries(fbr.arms || {}).filter(([,v]) => v.impressions)
+    .map(([a, v]) => `<tr><td>${esc(a)}</td><td>${v.impressions}</td>
+      <td><b style="color:${v.ctr >= 0.085 ? "var(--green)" : "var(--txt)"}">${(v.ctr * 100).toFixed(1)}%</b></td>
+      <td>${v.latency_p50_ms ?? "—"}ms</td></tr>`).join("");
+  $("#opsArms").innerHTML = `
+    <h3>🧪 分层实验 rank_model（你的分桶：${esc(exp?.your_arm ?? "—")} → ${esc(exp?.your_model ?? "—")}）</h3>
+    <table class="optable"><tr><th>arm</th><th>曝光</th><th>在线CTR</th><th>p50</th></tr>
+    ${armRows || '<tr><td colspan=4 class="empty">暂无曝光数据</td></tr>'}</table>
+    <div class="hint">流量切分：${Object.entries(exp?.traffic_split ?? {}).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(" / ") || "—"}</div>`;
+
+  // —— 模型注册表 ——
+  const models = (reg.models || []).map(mm => `
+    <div class="regrow ${mm.stage === "production" ? "prod" : mm.stage}">
+      <b>${esc(mm.name)}</b>
+      <span class="stage">${mm.stage}</span>
+      <span class="hint">AUC ${mm.metrics?.auc_offline ?? "—"}</span>
+      ${mm.stage !== "production" ? `<button class="mini" onclick="regActivate('${esc(mm.name)}')">上线</button>` : ""}
+    </div>`).join("");
+  const hist = (ops.registry_history || []).slice(-3).reverse().map(h =>
+    `<div class="hint">· ${new Date(h.ts * 1000).toLocaleTimeString()} ${esc(h.model)} ${h.from}→${h.to} ${esc(h.note || "")}</div>`).join("");
+  $("#opsRegistry").innerHTML = `
+    <h3>🗂 模型注册表（production: <b style="color:var(--green)">${esc(prod)}</b>）</h3>
+    ${models}
+    <button class="mini warn" onclick="regRollback()">⏪ 一键回滚上一版</button>
+    <div style="margin-top:6px">${hist}</div>`;
+
+  // —— 位置偏差 ——
+  const pb = (fbr.position_bias || []).slice(0, 8);
+  const mx = Math.max(0.001, ...pb.map(p => p.ctr || 0));
+  $("#opsPosBias").innerHTML = `
+    <h3>📉 位置偏差（各坑位在线 CTR）· SNIPS 去偏 CTR：${fbr.snips != null ? (fbr.snips * 100).toFixed(2) + "%" : "—"}</h3>
+    ${pb.map(p => `<div class="pbrow"><span>#${p.pos}</span>
+      <div class="pbbar"><i style="width:${(p.ctr / mx * 100).toFixed(1)}%"></i></div>
+      <b>${(p.ctr * 100).toFixed(1)}%</b></div>`).join("") || '<div class="empty">暂无点击数据</div>'}`;
+}
+async function regActivate(name) {
+  try {
+    const r = await post("/api/registry/activate", { name });
+    toast(`✅ ${name} 已上线（production）`);
+    state.model = "auto";           // 回到实验分桶模式看效果
+    document.querySelectorAll("#modelSeg button").forEach(b =>
+      b.classList.toggle("on", b.dataset.m === "auto"));
+    refreshOps(); recommend();
+  } catch (err) { toast("上线失败: " + err.message); }
+}
+async function regRollback() {
+  try {
+    const r = await post("/api/registry/rollback", {});
+    toast(r.rolled_back_to ? `⏪ 已回滚到 ${r.rolled_back_to}` : "没有可回滚的历史版本");
+    refreshOps();
+  } catch (err) { toast("回滚失败: " + err.message); }
+}
+
 /* ---------- 启动 ---------- */
 (async function init() {
   try {
@@ -496,6 +675,8 @@ $("#randBtn").addEventListener("click", () => {
     $("#sItems").textContent = state.bootstrap.num_items.toLocaleString();
     $("#sCold").textContent = state.bootstrap.num_cold;
     renderUserList();
+    refreshOps();
+    opsTimer = setInterval(refreshOps, 5000);   // 运维面板 5s 自刷新
     selectUser(7);   // 与 CLI demo 同一个默认用户
   } catch (err) {
     toast("初始化失败: " + err.message);
