@@ -10,7 +10,7 @@
 
 - **多路召回**：ItemCF（IUF 加权 + Top100 近邻）、双塔向量（batch 内负样本 softmax + 流行度 logQ 修正）、时间衰减热榜，Reciprocal Rank Fusion 融合
 - **向量检索**：Faiss Flat / IVF / HNSW 统一封装，附召回保持率 vs 吞吐的实测权衡，以及库规模从 4k → 20 万的规模效应实验
-- **精排与多目标**：DeepFM、DIN（target attention）、ESMM（CTR + CVR，pCTCVR = pCTR × pCVR）三种结构**同输入对照**，差距可干净归因
+- **精排与多目标**：DeepFM、DIN（target attention）、ESMM（CTR + CVR，pCTCVR = pCTR × pCVR）、**MMoE（4 专家 × 双门）**四种结构**同输入对照**，差距可干净归因
 - **多样性重排**：MMR 连续旋钮 + 类目硬打散，同时报告精度（NDCG）与生态指标（ILD / 覆盖率 / 新颖度）
 - **新内容冷启动**：内容语义通道 + 标签倒排通道 + 「扶持额度」旋钮，量化每多给一个坑位能买回多少召回
 - **用户增长**：SVD 行为向量 KNN Lookalike 人群扩展 + pLTV 价值模型两步法，按时间窗口切分避免标签退化
@@ -19,9 +19,11 @@
 - **在线模拟与 A/B 框架**：行为模拟器（含先验校准）、SRM 校验、用户级 bootstrap、CUPED 方差削减、MDE 功效分析
 - **生产化 serving 栈**：`src/recsys/serving/` 七模块——在线特征存储（快照+TTL）、安全护栏（频控/曝光饱和/质量门槛，含**过严自动降级**）、候选缓存（LRU+TTL+命中率统计）、分层实验（哈希正交分桶）、可观测性（延迟分位/PSI 漂移/**Prometheus 格式**）、反馈闭环（曝光-点击事件流/位置偏差/**SNIPS 去偏**）、模型注册表（staging 流转护栏/原子切换/一键回滚），Web Demo 全部在线可用
 - **真实事件流在线学习**：ML-1M 的 98.8 万条真实评分按时间戳回放成事件流（跨 1039 天），先序评测（test-then-train，**零时间泄漏**）+ Adam 增量更新 + 时间衰减热度：先序 AUC 0.686 vs 热度基线 0.610；首窗 0.795（时间局部性）→ 在线更新稳住 0.69；与离线随机切分 AUC 0.704 的差距即「时间泄漏水分」的实测
+- **MMoE 多任务**：并行专家 × 任务门 vs ESMM 串联共享——同 embedding / 同标签 / 同损失，ctcvr AUC 0.827 vs 0.788（+3.9pt），门 JS 散度 0.084 证明两任务门学出了分化（跷跷板的结构性解法）
+- **pCTR 概率校准**：手写 PAV 保序回归 + ECE/PCOC 指标——负采样训练的排序模型整体高估 **17 倍**（PCOC 17.2，AUC 完全看不出），校准后 PCOC=1.00、ECE≈0 且序不变；校准器只在验证集一半上拟合防泄漏
 - **真实负载压测**：`17_load_test.py` 对运行中服务发起真实并发 HTTP（300 请求 / 8 并发）：QPS 40.8、p95 340ms、零错误
 - **SQL 特征工程**：画像口径全部写在可读的 DuckDB SQL（CTE + 窗口函数 + 时间衰减）里，另有等价 pandas 兜底实现
-- **86 个 pytest 用例**：指标与 sklearn 对拍、训练/测试隔离校验、冷启动物品隔离校验、attention masking 行为校验、A/B 统计工具校验、生产化模块（护栏/缓存/实验/指标/反馈/注册表）与流式在线学习校验
+- **95 个 pytest 用例**：指标与 sklearn 对拍、训练/测试隔离校验、冷启动物品隔离校验、attention masking 行为校验、A/B 统计工具校验、生产化模块（护栏/缓存/实验/指标/反馈/注册表）与流式在线学习校验
 
 ---
 
@@ -306,6 +308,39 @@ MovieLens 的显式评分（1–5）先映射成业务漏斗，才能同时支�
 
 ---
 
+## 多任务与校准（18/19 步）
+
+两个「大厂面试高频、但学生项目几乎从不做」的维度：
+
+### MMoE vs ESMM（结构对照实验）
+
+`18_train_mmoe.py`：同 embedding、同标签（点击 / rating≥5 转化）、同 esmm_loss，唯一变量是结构——ESMM 共享子网络串联 vs MMoE 并行专家 + 任务门：
+
+| 模型 | CTR AUC | CVR AUC | CTCVR AUC |
+| --- | ---: | ---: | ---: |
+| ESMM（1 epoch，原配置） | 0.7194 | 0.7296 | 0.7877 |
+| **MMoE（3 epoch）** | **0.7714** | **0.7698** | **0.8271** |
+
+- **门 JS 散度 0.084**：CTR 门与 CVR 门学出了显著不同的专家权重分布——CTR/CVR 任务间确实存在张力（跷跷板），多门结构让它「各取所需」而不是互相牵制；
+- 诚实备注：ESMM 原训练配置为 1 epoch，MMoE 跑了 3 epoch，+3.9pt 里含训练时长因素；结构贡献需同预算对照实验分离——这个 caveat 本身就是面试里展示实验素养的机会。
+
+### pCTR 校准（AUC 之外的绝对值正确性）
+
+`19_calibrate.py`：AUC 只看序，但计费 / 竞价 / EE 探索预算看的是**绝对概率**。四个模型在验证集（1 正 + 99 负）上的诊断：
+
+| 模型 | ECE（前 → 后） | PCOC（前 → 后） | 均值分 vs 真实 CTR |
+| --- | --- | --- | --- |
+| DeepFM | 0.161 → 0.00004 | 17.1 → **1.00** | 0.171 vs 0.010 |
+| DIN | 0.162 → 0.00002 | 17.2 → **1.00** | 0.172 vs 0.010 |
+| ESMM | 0.162 → 0.00002 | 17.2 → **1.00** | 0.172 vs 0.010 |
+| MMoE | 0.144 → 0.00003 | 15.4 → **1.00** | 0.154 vs 0.010 |
+
+- **模型整体高估 17 倍**：训练用 1:1 负采样、评测 1:99——采样比例的失真直接写进了分数分布，而 AUC（0.70+）对此完全沉默；
+- PAV 保序回归（手写，零 sklearn 依赖）校准后 PCOC=1.00、ECE≈0，且**序完全不变**（单调映射不改 AUC）——「校准免费、不校准危险」的教科书案例；
+- 防泄漏协议：校准器只在验证集一半样本上拟合，另一半上报指标。
+
+---
+
 ## 可靠性：两个真实踩到并修复的数据泄漏
 
 推荐系统的线上事故大多来自数据，而不是模型。本仓库把两次踩坑沉淀成了回归测试：
@@ -385,7 +420,9 @@ python scripts/14_online_sim.py             # 在线模拟 + A/B 实验框架
 python scripts/15_production_serving.py     # 生产链路演练（600 请求回放 + 模型切换/回滚）
 python scripts/16_stream_replay.py          # 真实事件流回放 + 在线增量学习 + 先序评测
 python scripts/17_load_test.py              # 服务并发压测（需先启动 webapp）
-python -m pytest tests -q                   # 86 passed
+python scripts/18_train_mmoe.py             # MMoE 多任务（vs ESMM 对照）
+python scripts/19_calibrate.py              # pCTR 校准（ECE/PCOC + PAV）
+python -m pytest tests -q                   # 95 passed
 ```
 
 一键复现：`python scripts/run_all.py`。所有阶段产物落在 `data/processed/`（中间数据）与 `results/`（指标 JSON），图表由 `scripts/10_make_figures.py` 生成。
@@ -437,7 +474,7 @@ open http://127.0.0.1:8000/          # 默认 127.0.0.1:8000，--port 可改
 │   ├── coldstart/      content.py（语义向量 · 零样本标签 · 质量分 · 意图画像）
 │   ├── serving/        生产化八模块（特征存储/护栏/缓存/分层实验/指标/反馈闭环/模型注册表/流式在线学习）
 │   └── eval/           metrics.py（手写指标，含 GAUC / ILD / Lift）
-├── tests/              86 个单测（指标对拍 + 泄漏护栏 + A/B 统计 + 生产化模块 + 流式在线学习）
+├── tests/              95 个单测（指标对拍 + 泄漏护栏 + A/B 统计 + 生产化模块 + 流式在线学习 + MMoE/校准）
 ├── webapp/             本地 Web 交互 Demo（server.py 零依赖后端 + static/ 前端）
 ├── docs/               系统设计说明
 └── results/            各阶段 JSON 指标
